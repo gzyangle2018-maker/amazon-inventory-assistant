@@ -1,0 +1,22 @@
+name = "amazon-inventory-assistant"
+main = "src/index.js"
+compatibility_date = "2026-05-11"
+account_id = "ebba6be2d4369da1443736cb2f66b182"
+
+# Cloudflare Pages 配置
+[site]
+bucket = "./public"
+
+# D1 数据库绑定
+[[d1_databases]]
+binding = "DB"
+database_name = "amazon_inventory_db"
+database_id = "321c632b-57a8-400b-8299-fd3b0947a7ae"
+
+# 环境变量
+[vars]
+APP_VERSION = "1.0.0"
+
+# 密钥（部署后通过 wrangler secret 设置）
+# [[secrets]]
+# ADMIN_PASSWORD_HASH = "..."
