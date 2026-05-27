@@ -1,10 +1,6 @@
-name = "amazon-inventory-assistant"
-main = "src/index.js"
+name = "amazon-inventory-assistant-20260527-v2"
+pages_build_output_dir = "public"
 compatibility_date = "2026-05-11"
-
-# Cloudflare Pages 配置
-[site]
-bucket = "./public"
 
 # D1 数据库绑定
 [[d1_databases]]
