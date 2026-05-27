@@ -67,26 +67,6 @@ CREATE TABLE IF NOT EXISTS llm_config (
     updated_at TEXT
 );
 
-CREATE TABLE IF NOT EXISTS column_mappings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT NOT NULL DEFAULT 'global',
-    map_type TEXT NOT NULL,
-    columns_json TEXT,
-    updated_by TEXT DEFAULT '',
-    updated_at TEXT,
-    UNIQUE(username, map_type)
-);
-
-CREATE TABLE IF NOT EXISTS upload_file_data (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    history_id INTEGER NOT NULL UNIQUE,
-    headers_json TEXT NOT NULL,
-    data_json TEXT NOT NULL,
-    green_rows_json TEXT DEFAULT '[]',
-    created_at TEXT,
-    FOREIGN KEY (history_id) REFERENCES upload_history(id)
-);
-
 -- Insert default admin
 INSERT OR IGNORE INTO users (username, password_hash, role, created_at, is_active)
 VALUES ('yangle', 'a8f5f167f44f4964e6c998dee827110c9a0c5e1e7a5b6e5f9d8c7b6a5f4e3d2c', 'admin', datetime('now'), 1);
