@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#007AFF"/>
+      <stop offset="100%" style="stop-color:#5856D6"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:rgba(255,255,255,0.15)"/>
+      <stop offset="100%" style="stop-color:rgba(255,255,255,0)"/>
+    </linearGradient>
+  </defs>
+  <!-- Background rounded square -->
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+  <rect width="512" height="256" rx="96" fill="url(#shine)"/>
+  
+  <!-- Box/Package -->
+  <rect x="176" y="170" width="160" height="140" rx="12" fill="rgba(255,255,255,0.2)" stroke="white" stroke-width="4"/>
+  <line x1="256" y1="170" x2="256" y2="310" stroke="white" stroke-width="3" stroke-dasharray="6,4" opacity="0.5"/>
+  <line x1="176" y1="210" x2="336" y2="210" stroke="white" stroke-width="3" opacity="0.5"/>
+  <!-- Up arrows on box -->
+  <polyline points="230,260 240,245 250,260" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/>
+  <polyline points="262,260 272,245 282,260" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/>
+  
+  <!-- Robot head -->
+  <rect x="80" y="175" width="72" height="60" rx="14" fill="rgba(255,255,255,0.25)" stroke="white" stroke-width="3"/>
+  <circle cx="102" cy="200" r="8" fill="white"/>
+  <circle cx="130" cy="200" r="8" fill="white"/>
+  <circle cx="102" cy="200" r="4" fill="#007AFF"/>
+  <circle cx="130" cy="200" r="4" fill="#007AFF"/>
+  <path d="M104 218 Q116 226 128 218" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="116" y1="165" x2="116" y2="175" stroke="white" stroke-width="3"/>
+  <circle cx="116" cy="160" r="5" fill="white" opacity="0.8"/>
+  
+  <!-- Bar chart -->
+  <rect x="360" y="260" width="24" height="50" rx="4" fill="rgba(255,255,255,0.4)"/>
+  <rect x="390" y="230" width="24" height="80" rx="4" fill="rgba(255,255,255,0.5)"/>
+  <rect x="420" y="200" width="24" height="110" rx="4" fill="rgba(255,255,255,0.6)"/>
+  
+  <!-- Checklist -->
+  <rect x="80" y="270" width="80" height="55" rx="8" fill="rgba(255,255,255,0.15)" stroke="white" stroke-width="2" opacity="0.7"/>
+  <polyline points="90,285 95,290 103,280" fill="none" stroke="#34C759" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="110" y1="285" x2="148" y2="285" stroke="white" stroke-width="2" opacity="0.5"/>
+  <polyline points="90,305 95,310 103,300" fill="none" stroke="#34C759" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="110" y1="305" x2="148" y2="305" stroke="white" stroke-width="2" opacity="0.5"/>
+  
+  <!-- Circular flow arrows -->
+  <path d="M155 190 Q175 140 230 155" fill="none" stroke="white" stroke-width="3" opacity="0.6"/>
+  <polygon points="230,150 236,158 226,158" fill="white" opacity="0.6"/>
+  
+  <path d="M340 240 Q380 200 360 250" fill="none" stroke="white" stroke-width="3" opacity="0.6"/>
+  
+  <path d="M380 320 Q340 370 270 360" fill="none" stroke="white" stroke-width="3" opacity="0.6"/>
+  <polygon points="270,355 278,362 278,352" fill="white" opacity="0.6"/>
+  
+  <path d="M190 350 Q130 340 120 290" fill="none" stroke="white" stroke-width="3" opacity="0.6"/>
+  <polygon points="118,290 124,298 114,296" fill="white" opacity="0.6"/>
+  
+  <!-- Calculator symbol -->
+  <rect x="350" y="140" width="56" height="48" rx="10" fill="rgba(255,255,255,0.2)" stroke="white" stroke-width="2.5"/>
+  <text x="378" y="172" font-family="Arial" font-size="28" fill="white" text-anchor="middle" font-weight="bold">%</text>
+</svg>
