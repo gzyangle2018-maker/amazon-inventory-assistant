@@ -95,22 +95,22 @@ const PRODUCT_TYPES = {
   gan50: { name: '氮化镓/小壳子(50装)', qty: 50 },
 };
 
-// Auxiliary calculation columns — intermediate results from analyzeRow displayed as table columns
+// Auxiliary calculation columns — matching original version output exactly
 const AUX_COLUMNS = [
-  { key: 'daily_weighted', name: '加权日销', format: v => (v !== undefined && v !== '' && !isNaN(v)) ? Number(v).toFixed(2) : '' },
-  { key: 'daily_sales', name: '日均销量', format: v => (v !== undefined && v !== '' && !isNaN(v)) ? Number(v).toFixed(1) : '' },
+  { key: 'daily_3', name: '3天日均', format: v => (v !== undefined && v !== '' && !isNaN(v)) ? Number(Number(v).toFixed(2)).toString() : '' },
+  { key: 'daily_7', name: '7天日均', format: v => (v !== undefined && v !== '' && !isNaN(v)) ? Number(Number(v).toFixed(2)).toString() : '' },
+  { key: 'daily_15', name: '15天日均', format: v => (v !== undefined && v !== '' && !isNaN(v)) ? Number(Number(v).toFixed(2)).toString() : '' },
+  { key: 'daily_30', name: '30天日均', format: v => (v !== undefined && v !== '' && !isNaN(v)) ? Number(Number(v).toFixed(2)).toString() : '' },
+  { key: 'daily_weighted', name: '加权日销量', format: v => (v !== undefined && v !== '' && !isNaN(v)) ? Number(Number(v).toFixed(2)).toString() : '' },
+  { key: 'monthly_weighted', name: '加权月销量', format: v => (v !== undefined && v !== '' && !isNaN(v)) ? Number(Number(v).toFixed(2)).toString() : '' },
+  { key: 'stock_months', name: '备货月数', format: v => (v !== undefined && !isNaN(v)) ? Math.round(v) : '' },
   { key: 'target_stock', name: '目标库存', format: v => (v !== undefined && !isNaN(v)) ? Math.round(v) : '' },
-  { key: 'suggest_restock', name: '建议补货', format: v => (v !== undefined && !isNaN(v)) ? Math.round(v) : '' },
-  { key: 'actual_restock', name: '实际补货', format: v => (v !== undefined && !isNaN(v)) ? Math.round(v) : '' },
-  { key: 'qty_per_box', name: '每箱数量', format: v => (v !== undefined && !isNaN(v)) ? Math.round(v) : '' },
+  { key: 'fba_available', name: 'FBA现有库存', format: v => (v !== undefined && !isNaN(v)) ? Math.round(v) : '' },
+  { key: 'transit_total', name: '在途库存合计', format: v => (v !== undefined && !isNaN(v)) ? Math.round(v) : '' },
+  { key: 'purchasing_total', name: '采购中库存合计', format: v => (v !== undefined && !isNaN(v)) ? Math.round(v) : '' },
   { key: 'total_inv', name: '总库存', format: v => (v !== undefined && !isNaN(v)) ? Math.round(v) : '' },
-  { key: 'unshipped_orders', name: '未出货', format: v => (v !== undefined && !isNaN(v)) ? Math.round(v) : '' },
-  { key: 'week_ship', name: '本周出', format: v => (v !== undefined && !isNaN(v) && Number(v) > 0) ? Math.round(v) : '' },
-  { key: 'monthly_sales', name: '月销量', format: v => (v !== undefined && !isNaN(v)) ? Math.round(v) : '' },
-  { key: 'is_stagnant', name: '滞销', format: v => v ? '是' : '' },
-  { key: 'is_deep', name: '深度款', format: v => v ? '是' : '' },
-  { key: 'is_high_volume', name: '高销量', format: v => v ? '是' : '' },
-  { key: 'ptype', name: '产品类型', format: v => (v && PRODUCT_TYPES[v]) ? PRODUCT_TYPES[v].name : (v || '') },
+  { key: 'recommended_order', name: '推荐下单库存', format: v => (v !== undefined && !isNaN(v)) ? Math.round(v) : '' },
+  { key: 'inventory_months', name: '库存可售月数', format: v => (v !== undefined && v !== '' && !isNaN(v)) ? Number(Number(v).toFixed(2)).toString() : '' },
 ];
 
 function isGreenCell(cell) {
@@ -219,7 +219,12 @@ function autoMapColumns(hdrs) {
   for (const h of hdrs) {
     const hStr = h !== null && h !== undefined ? String(h) : '';
     if (ignoreSet.has(hStr)) continue;
-    if (hStr.toUpperCase().startsWith('FBA') && hStr.length > 3) fbaCols.push(hStr);
+    if (hStr.toUpperCase().startsWith('FBA') && hStr.length > 3) {
+      // Exclude auxiliary/display columns like "FBA现有库存"
+      const hLower = hStr.toLowerCase();
+      if (['现有', '库存', '合计', '总计'].some(kw => hLower.includes(kw))) continue;
+      fbaCols.push(hStr);
+    }
   }
   if (fbaCols.length) colMap.fba_shipments = fbaCols;
 
@@ -276,10 +281,12 @@ function analyzeRow(row, colMap, isGreen = false) {
   const code = row[colMap.code] || '';
   const asin = row[colMap.asin] || '';
 
+  const yesterdaySales = parseNum(row[colMap.yesterdaySales]);
+
   const daily30 = sales30 > 0 ? sales30 / 30 : 0;
-  const daily15 = sales15 > 0 ? sales15 / 15 : daily30;
   const daily7 = sales7 > 0 ? sales7 / 7 : daily30;
-  const daily3 = sales3 > 0 ? sales3 / 3 : daily7;
+  const daily15 = sales15 > 0 ? sales15 / 15 : (sales7 > 0 ? daily7 : daily30);
+  const daily3 = sales3 > 0 ? sales3 / 3 : (yesterdaySales > 0 ? yesterdaySales : daily7);
   const dailyWeighted = daily3 * (restockConfig.weight_3d / 100) + daily7 * (restockConfig.weight_7d / 100) + daily15 * (restockConfig.weight_15d / 100) + daily30 * (restockConfig.weight_30d / 100);
 
   // Apply deduct options from restock config
@@ -291,6 +298,8 @@ function analyzeRow(row, colMap, isGreen = false) {
     effectiveAvailable -= weekOutbound;
   }
   const totalInv = effectiveAvailable + unshipped + purchasing;
+  const rawTotalInv = available + unshipped + purchasing; // For auxiliary column display (no deductions)
+  const monthlyWeighted = dailyWeighted * 30; // Weighted monthly sales
 
   // Use stocking rules to determine multiplier (priority-sorted, first match wins)
   let stockMultiplier = restockConfig.stock_months || 4;
@@ -304,7 +313,7 @@ function analyzeRow(row, colMap, isGreen = false) {
     }
   }
   const isDeep = sales30 > 600;
-  const targetStock = isDeep ? Math.round(sales30 * stockMultiplier) : Math.round(sales30 * Math.max(2, stockMultiplier / 2));
+  const targetStock = Math.round(monthlyWeighted * stockMultiplier);
   const suggestRestock = Math.max(0, targetStock - totalInv);
 
   const excessThreshold = sales30 * 5;
@@ -342,8 +351,12 @@ function analyzeRow(row, colMap, isGreen = false) {
       _meta: { is_excess: isExcess, available_excess: Math.round(availableExcess), restock_excess_qty: restockExcessQty,
         is_deep: isDeep, is_high_volume: isHighVolume, is_stagnant: true, suggest_restock: Math.round(suggestRestock),
         actual_restock: Math.round(actualRestock), ptype, qty_per_box: qtyPerBox, daily_sales: daily30.toFixed(1),
-        daily_weighted: dailyWeighted.toFixed(2), target_stock: targetStock, total_inv: totalInv,
-        unshipped_orders: Math.round(unshippedOrders), week_ship: 0, monthly_sales: Math.round(monthlySales), asin, sku }
+        daily_weighted: dailyWeighted.toFixed(2), target_stock: targetStock, total_inv: rawTotalInv,
+        unshipped_orders: Math.round(unshippedOrders), week_ship: 0, monthly_sales: Math.round(monthlySales), asin, sku,
+        daily_3: daily3, daily_7: daily7, daily_15: daily15, daily_30: daily30,
+        monthly_weighted: monthlyWeighted, stock_months: stockMultiplier,
+        fba_available: available, transit_total: unshipped, purchasing_total: purchasing,
+        recommended_order: Math.round(suggestRestock), inventory_months: monthlyWeighted > 0 ? rawTotalInv / monthlyWeighted : 0 }
     };
   }
 
@@ -398,8 +411,12 @@ function analyzeRow(row, colMap, isGreen = false) {
     _meta: { is_excess: isExcess, available_excess: Math.round(availableExcess), restock_excess_qty: restockExcessQty,
       is_deep: isDeep, is_high_volume: isHighVolume, is_stagnant: isStagnant, suggest_restock: Math.round(suggestRestock),
       actual_restock: Math.round(actualRestock), ptype, qty_per_box: qtyPerBox, daily_sales: daily30.toFixed(1),
-      daily_weighted: dailyWeighted.toFixed(2), target_stock: targetStock, total_inv: totalInv,
-      unshipped_orders: Math.round(unshippedOrders), week_ship: Math.round(weekShip), monthly_sales: Math.round(monthlySales), asin, sku }
+      daily_weighted: dailyWeighted.toFixed(2), target_stock: targetStock, total_inv: rawTotalInv,
+      unshipped_orders: Math.round(unshippedOrders), week_ship: Math.round(weekShip), monthly_sales: Math.round(monthlySales), asin, sku,
+      daily_3: daily3, daily_7: daily7, daily_15: daily15, daily_30: daily30,
+      monthly_weighted: monthlyWeighted, stock_months: stockMultiplier,
+      fba_available: available, transit_total: unshipped, purchasing_total: purchasing,
+      recommended_order: Math.round(suggestRestock), inventory_months: monthlyWeighted > 0 ? rawTotalInv / monthlyWeighted : 0 }
   };
 }
 
@@ -1093,10 +1110,37 @@ function exportResult() {
     }
   }
 
+  // Write auxiliary calculation columns to export
+  for (const aux of AUX_COLUMNS) {
+    const colIdx = headers.indexOf(aux.name);
+    if (colIdx < 0) continue;
+    for (let rIdx = 0; rIdx < tableData.length; rIdx++) {
+      const cellRef = XLSX.utils.encode_cell({ r: rIdx + 1, c: colIdx });
+      const val = tableData[rIdx][aux.name];
+      if (val !== undefined && val !== null && val !== '') {
+        const numVal = parseNum(val);
+        if (!isNaN(numVal) && String(numVal) === String(val)) {
+          if (newWs[cellRef]) {
+            newWs[cellRef].t = 'n'; newWs[cellRef].v = numVal; delete newWs[cellRef].w;
+          } else {
+            newWs[cellRef] = { t: 'n', v: numVal };
+          }
+        } else {
+          if (newWs[cellRef]) {
+            newWs[cellRef].t = 's'; newWs[cellRef].v = String(val); delete newWs[cellRef].w;
+          } else {
+            newWs[cellRef] = { t: 's', v: String(val) };
+          }
+        }
+      }
+    }
+  }
+
   // Update sheet range if we added columns beyond the original range
   const newRange = XLSX.utils.decode_range(newWs['!ref'] || 'A1');
-  if (range.e.c > newRange.e.c) {
-    newRange.e.c = range.e.c;
+  const maxCol = Math.max(newRange.e.c, headers.length - 1);
+  if (maxCol > newRange.e.c) {
+    newRange.e.c = maxCol;
     newWs['!ref'] = XLSX.utils.encode_range(newRange);
   }
 
