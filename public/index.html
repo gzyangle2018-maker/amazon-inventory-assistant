@@ -1,46 +1,34 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="light">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>亚马逊备货助手 - Web版</title>
-  <link rel="icon" type="image/png" href="app-icon.png">
-  <link rel="apple-touch-icon" href="app-icon.png">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
 <body>
-  <!-- Toast Notification -->
-  <div class="toast" id="toast"></div>
-
   <!-- Login Screen -->
   <div id="login-screen" class="login-container">
     <div class="login-card">
-      <img src="app-icon.png" alt="logo" class="login-logo">
+      <div style="font-size: 48px; margin-bottom: 12px;">📦</div>
       <h1>亚马逊备货助手</h1>
-      <p class="subtitle">智能库存分析与自动填充系统</p>
+      <p class="subtitle">智能库存分析与自动填充系统 - Web版</p>
       <div id="login-error" class="alert alert-error" style="display:none;"></div>
-      <input type="text" id="login-username" placeholder="请输入用户名" autocomplete="username" autofocus>
-      <input type="password" id="login-password" placeholder="请输入密码" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
-      <button class="btn glass-btn" onclick="doLogin()">登 录</button>
-      <p class="login-footer">Web版 v1.0.0</p>
-      <p class="designed-by">Designed by Leo Young in China</p>
+      <input type="text" id="login-username" placeholder="请输入用户名" autofocus>
+      <input type="password" id="login-password" placeholder="请输入密码" onkeydown="if(event.key==='Enter')doLogin()">
+      <button class="btn" onclick="doLogin()">登 录</button>
+      <p style="color: rgba(255,255,255,0.25); font-size: 12px; margin-top: 24px;">Web版 v1.0.0</p>
     </div>
   </div>
 
   <!-- Main App -->
   <div id="app">
     <div class="header">
-      <div class="header-left">
-        <img src="app-icon.png" alt="logo" class="header-logo">
-        <h1>亚马逊备货助手</h1>
-      </div>
+      <h1>📦 亚马逊备货助手</h1>
       <div class="user-info">
         <span id="user-display"></span>
-        <button class="theme-toggle" onclick="toggleTheme()" id="theme-toggle-btn" title="切换明暗模式">
-          <span class="theme-icon" id="theme-icon">☀️</span>
-        </button>
-        <button onclick="toggleChatSidebar()" id="chat-toggle-btn" title="团队沟通">💬</button>
         <button onclick="openAdmin()" id="admin-btn" style="display:none;">管理后台</button>
         <button onclick="openHistory()" id="history-btn">历史记录</button>
         <button onclick="doLogout()">退出</button>
@@ -49,35 +37,22 @@
 
     <div class="container">
       <!-- Upload Card -->
-      <div class="card" id="upload-card">
+      <div class="card">
         <div class="upload-area" id="upload-area" onclick="document.getElementById('file-input').click()">
           <input type="file" id="file-input" accept=".xlsx,.xls" style="display:none;" onchange="handleFileSelect(event)">
-          <div style="font-size: 32px; margin-bottom: 8px;">☁️</div>
-          <p style="color: #636366; font-size: 14px;">点击或拖拽上传 Excel 文件</p>
-          <p style="color: #8E8E93; font-size: 12px; margin-top: 6px;">支持 .xlsx 和 .xls 格式</p>
-        </div>
-        <!-- Progress Bar -->
-        <div class="progress-bar-container" id="progress-container">
-          <div class="progress-bar" id="progress-bar"></div>
+          <div style="font-size: 36px; margin-bottom: 12px;">☁️</div>
+          <p style="color: #636366; font-size: 15px;">点击或拖拽上传 Excel 文件</p>
+          <p style="color: #8E8E93; font-size: 12px; margin-top: 8px;">支持 .xlsx 和 .xls 格式</p>
         </div>
       </div>
 
       <!-- Toolbar -->
       <div class="toolbar" id="toolbar" style="display:none;">
-        <button class="btn btn-info" id="toolbar-upload-btn" onclick="document.getElementById('file-input').click()">📁 上传表格</button>
-        <button class="btn btn-outline" id="toolbar-colsettings-btn" onclick="openColumnSettings()">⚙ 列设置</button>
-        <button class="btn btn-outline" onclick="openWeightConfig()" id="weight-btn" style="display:none;">🧮 加权算法</button>
-        <button class="btn btn-info" onclick="batchUpload()" id="batch-btn" style="display:none;">📋 批量分析</button>
-        <button class="btn btn-secondary" onclick="batchUpload()" id="batch-btn-2" style="display:none;">📋 批量分析</button>
-        <button class="btn btn-success" id="toolbar-autocalc-btn" onclick="autoCalculate()">🧮 自动计算</button>
-        <button class="btn btn-warning" id="toolbar-export-btn" onclick="exportResult()">📊 导出表格</button>
-        <button class="btn btn-purple" onclick="openSeckill()" id="seckill-btn" style="display:none;">⚡ 提报秒杀</button>
-        <button class="btn btn-secondary" id="toolbar-clear-btn" onclick="clearData()">🗑 清除记录</button>
-        <button class="btn btn-outline" id="toolbar-rules-btn" onclick="openRules()">📖 规则说明</button>
+        <button class="btn btn-success" onclick="autoCalculate()">自动计算</button>
+        <button class="btn btn-primary" onclick="openSeckill()" id="seckill-btn" style="display:none;">提报秒杀</button>
+        <button class="btn btn-warning" onclick="exportResult()">导出表格</button>
+        <button class="btn btn-secondary" onclick="clearData()">清除记录</button>
       </div>
-
-      <!-- Hidden batch file input -->
-      <input type="file" id="batch-file-input" accept=".xlsx,.xls" multiple style="display:none;" onchange="handleBatchSelect(event)">
 
       <!-- Status Bar -->
       <div class="status-bar" id="status-bar" style="display:none;">
@@ -96,44 +71,9 @@
       <!-- Seckill Recommendations -->
       <div id="seckill-panel" style="display:none;">
         <div class="card">
-          <h3 style="color: #AF52DE; margin-bottom: 10px; font-size: 15px;">⚡ 秒杀提报推荐</h3>
-          <p style="color: #636366; font-size: 13px; margin-bottom: 10px;">以下SKU月销量&gt;150，符合秒杀提报条件：</p>
-          <div id="seckill-items" style="display: flex; flex-wrap: wrap; gap: 8px;"></div>
-        </div>
-      </div>
-    </div>
-    <div class="app-footer">Designed by Leo Young in China</div>
-
-    <!-- Communication Sidebar Dock -->
-    <div class="chat-sidebar" id="chat-sidebar">
-      <div class="chat-header">
-        <h3>💬 团队沟通</h3>
-        <button class="close-btn" onclick="toggleChatSidebar()">&times;</button>
-      </div>
-      <div class="chat-users-bar" id="chat-users-bar">
-        <div class="chat-filter-row">
-          <select id="chat-recipient-select" onchange="loadChatMessages()">
-            <option value="__all__">全体消息</option>
-          </select>
-        </div>
-        <div class="chat-search-row">
-          <input type="text" id="chat-search-input" placeholder="🔍 搜索消息..." oninput="filterChatMessages()">
-        </div>
-      </div>
-      <div class="chat-messages" id="chat-messages"></div>
-      <div class="chat-image-preview" id="chat-image-preview" style="display:none;">
-        <img id="chat-preview-img" src="">
-        <button class="chat-preview-remove" onclick="removeChatImage()">&times;</button>
-      </div>
-      <div class="chat-mention-dropdown" id="chat-mention-dropdown" style="display:none;"></div>
-      <div class="chat-input-row">
-        <div class="chat-toolbar-row">
-          <button class="chat-tool-btn" onclick="triggerImagePaste()" title="粘贴图片 (Ctrl+V)">🖼</button>
-          <button class="chat-tool-btn" onclick="insertMentionTrigger()" title="@ 提及成员">@</button>
-        </div>
-        <div class="chat-input-wrap">
-          <input type="text" id="chat-input" placeholder="输入消息... (Ctrl+V贴图, @提及)" onkeydown="handleChatKeydown(event)" oninput="handleChatInput(event)">
-          <button class="btn btn-primary" style="padding:6px 14px; font-size:12px;" onclick="sendChatMessage()">发送</button>
+          <h3 style="color: #AF52DE; margin-bottom: 12px;">⚡ 秒杀提报推荐</h3>
+          <p style="color: #636366; font-size: 14px; margin-bottom: 12px;">以下SKU月销量&gt;150，符合秒杀提报条件：</p>
+          <div id="seckill-items" style="display: flex; flex-wrap: wrap; gap: 12px;"></div>
         </div>
       </div>
     </div>
@@ -147,16 +87,14 @@
         <button class="close-btn" onclick="closeModal('admin-modal')">&times;</button>
       </div>
       <div class="tabs">
-        <div class="tab active" onclick="switchTab('users', this)">用户管理</div>
-        <div class="tab" onclick="switchTab('logs', this)">登录日志</div>
-        <div class="tab" onclick="switchTab('history-admin', this)">上传历史</div>
-        <div class="tab" onclick="switchTab('seckill-admin', this)">秒杀提报</div>
-        <div class="tab" onclick="switchTab('permissions', this)">权限管理</div>
-        <div class="tab" onclick="switchTab('versions', this)">版本管理</div>
-        <div class="tab" onclick="switchTab('llm-config', this)">LLM配置</div>
+        <div class="tab active" onclick="switchTab('users')">用户管理</div>
+        <div class="tab" onclick="switchTab('logs')">登录日志</div>
+        <div class="tab" onclick="switchTab('history-admin')">上传历史</div>
+        <div class="tab" onclick="switchTab('seckill-admin')">秒杀提报</div>
+        <div class="tab" onclick="switchTab('versions')">版本管理</div>
       </div>
       <div id="tab-users" class="tab-content active">
-        <button class="btn btn-primary" style="margin-bottom: 10px;" onclick="showAddUser()">+ 添加用户</button>
+        <button class="btn btn-primary" style="margin-bottom: 12px;" onclick="showAddUser()">+ 添加用户</button>
         <div class="table-container">
           <table class="data-table" id="users-table"><thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>部门</th><th>状态</th><th>操作</th></tr></thead><tbody></tbody></table>
         </div>
@@ -165,57 +103,43 @@
         <div class="table-container"><table class="data-table" id="logs-table"><thead><tr><th>ID</th><th>用户名</th><th>时间</th><th>结果</th></tr></thead><tbody></tbody></table></div>
       </div>
       <div id="tab-history-admin" class="tab-content">
-        <div class="table-container"><table class="data-table" id="history-admin-table"><thead><tr><th>ID</th><th>用户名</th><th>文件名</th><th>时间</th><th>行数</th><th>操作</th><th>备注</th></tr></thead><tbody></tbody></table></div>
+        <div class="table-container"><table class="data-table" id="history-admin-table"><thead><tr><th>ID</th><th>用户名</th><th>文件名</th><th>时间</th><th>行数</th></tr></thead><tbody></tbody></table></div>
       </div>
       <div id="tab-seckill-admin" class="tab-content">
-        <div class="table-container"><table class="data-table" id="seckill-admin-table"><thead><tr><th>ID</th><th>用户名</th><th>时间</th><th>SKU数</th><th>操作</th></tr></thead><tbody></tbody></table></div>
-      </div>
-      <div id="tab-permissions" class="tab-content">
-        <p style="color:#8E8E93;font-size:12px;margin-bottom:12px;">为每个子账号设置可访问的功能模块，不勾选的模块将对该用户隐藏。管理员默认拥有全部权限。</p>
-        <div class="table-container"><table class="data-table" id="permissions-table"><thead><tr><th>用户名</th><th>角色</th><th>已启用模块</th><th>操作</th></tr></thead><tbody></tbody></table></div>
+        <div class="table-container"><table class="data-table" id="seckill-admin-table"><thead><tr><th>ID</th><th>用户名</th><th>时间</th><th>SKU数</th></tr></thead><tbody></tbody></table></div>
       </div>
       <div id="tab-versions" class="tab-content">
-        <button class="btn btn-primary" style="margin-bottom: 10px;" onclick="showAddVersion()">+ 添加版本</button>
+        <button class="btn btn-primary" style="margin-bottom: 12px;" onclick="showAddVersion()">+ 添加版本</button>
         <div class="table-container"><table class="data-table" id="versions-table"><thead><tr><th>ID</th><th>版本号</th><th>描述</th><th>状态</th><th>操作</th></tr></thead><tbody></tbody></table></div>
-      </div>
-      <div id="tab-llm-config" class="tab-content">
-        <div style="max-width: 500px;">
-          <div class="form-group"><label>API Key</label><input type="password" id="llm-api-key" placeholder="输入API密钥"></div>
-          <div class="form-group"><label>Base URL</label><input type="text" id="llm-base-url" placeholder="https://api.example.com/v1"></div>
-          <div class="form-group"><label>模型名称</label><input type="text" id="llm-model-name" placeholder="例如: glm-4, qwen-plus"></div>
-          <button class="btn btn-primary" onclick="saveLLMConfig()">保存配置</button>
-          <button class="btn btn-secondary" style="margin-left: 8px;" onclick="loadLLMConfig()">加载配置</button>
-          <p style="color: #8E8E93; font-size: 12px; margin-top: 12px;">推荐API：智谱GLM、通义千问、文心一言、讯飞星火、Kimi</p>
-        </div>
       </div>
     </div>
   </div>
 
   <!-- Seckill Dialog Modal -->
   <div class="modal-overlay" id="seckill-modal">
-    <div class="modal" style="width: 950px; max-width: 95vw;">
+    <div class="modal" style="width: 900px; max-width: 95vw;">
       <div class="modal-header">
-        <h2>⚡ 秒杀提报</h2>
+        <h2>秒杀提报</h2>
         <button class="close-btn" onclick="closeModal('seckill-modal')">&times;</button>
       </div>
-      <div class="table-container" style="max-height: 40vh;">
+      <div class="table-container">
         <table class="data-table" id="seckill-table">
-          <thead><tr><th>活动时间段</th><th>秒杀类型</th><th>站点</th><th>父体ASIN</th><th>子体ASIN</th><th>SKU</th><th>提报数量</th><th>店铺名</th><th>月销量</th></tr></thead>
+          <thead><tr><th>活动时间段</th><th>秒杀类型</th><th>站点</th><th>父体ASIN</th><th>子体ASIN</th><th>SKU</th><th>提报数量</th><th>店铺名</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
-      <div style="margin-top: 14px;">
-        <h4 style="margin-bottom: 6px; font-size: 14px;">紫鸟 / VPS 登录信息</h4>
-        <div class="table-container" style="max-height: 25vh;">
+      <div style="margin-top: 16px;">
+        <h4 style="margin-bottom: 8px;">紫鸟 / VPS 登录信息</h4>
+        <div class="table-container">
           <table class="data-table" id="ziniao-table">
             <thead><tr><th>类型</th><th>IP/公司/识别码</th><th>用户名/验证码</th><th>密码</th><th>店铺名</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
       </div>
-      <div style="margin-top: 14px; display: flex; gap: 10px; justify-content: flex-end;">
-        <button class="btn btn-primary" onclick="saveSeckill()">💾 保存到系统</button>
-        <button class="btn btn-success" onclick="exportSeckill()">📊 导出Excel</button>
+      <div style="margin-top: 16px; display: flex; gap: 12px; justify-content: flex-end;">
+        <button class="btn btn-primary" onclick="saveSeckill()">保存到系统</button>
+        <button class="btn btn-success" onclick="exportSeckill()">导出Excel</button>
       </div>
     </div>
   </div>
@@ -224,27 +148,16 @@
   <div class="modal-overlay" id="history-modal">
     <div class="modal" style="width: 800px; max-width: 95vw;">
       <div class="modal-header">
-        <h2>📋 上传历史</h2>
+        <h2>上传历史</h2>
         <button class="close-btn" onclick="closeModal('history-modal')">&times;</button>
       </div>
       <div class="table-container"><table class="data-table" id="history-table"><thead><tr><th>ID</th><th>文件名</th><th>时间</th><th>行数</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 
-  <!-- Rules Modal -->
-  <div class="modal-overlay" id="rules-modal">
-    <div class="modal" style="width: 750px; max-width: 95vw;">
-      <div class="modal-header">
-        <h2>📖 发货规则说明</h2>
-        <button class="close-btn" onclick="closeModal('rules-modal')">&times;</button>
-      </div>
-      <div class="rules-content" id="rules-content"></div>
-    </div>
-  </div>
-
   <!-- Add User Modal -->
   <div class="modal-overlay" id="add-user-modal">
-    <div class="modal" style="width: 380px;">
+    <div class="modal" style="width: 400px;">
       <div class="modal-header"><h2>添加用户</h2><button class="close-btn" onclick="closeModal('add-user-modal')">&times;</button></div>
       <div class="form-group"><label>用户名</label><input type="text" id="new-username"></div>
       <div class="form-group"><label>密码</label><input type="password" id="new-password"></div>
@@ -256,220 +169,11 @@
 
   <!-- Add Version Modal -->
   <div class="modal-overlay" id="add-version-modal">
-    <div class="modal" style="width: 380px;">
+    <div class="modal" style="width: 400px;">
       <div class="modal-header"><h2>添加版本</h2><button class="close-btn" onclick="closeModal('add-version-modal')">&times;</button></div>
       <div class="form-group"><label>版本号</label><input type="text" id="new-version" placeholder="例如: 1.0.0"></div>
       <div class="form-group"><label>描述</label><input type="text" id="new-version-desc"></div>
       <button class="btn btn-primary" style="width: 100%;" onclick="doAddVersion()">添加版本</button>
-    </div>
-  </div>
-
-  <!-- Reset Password Modal -->
-  <div class="modal-overlay" id="reset-pw-modal">
-    <div class="modal" style="width: 360px;">
-      <div class="modal-header"><h2>重置密码</h2><button class="close-btn" onclick="closeModal('reset-pw-modal')">&times;</button></div>
-      <div class="form-group"><label>新密码</label><input type="password" id="reset-new-pw" placeholder="输入新密码"></div>
-      <input type="hidden" id="reset-pw-username">
-      <button class="btn btn-primary" style="width: 100%;" onclick="doResetPassword()">确认重置</button>
-    </div>
-  </div>
-
-  <!-- Column Settings Modal -->
-  <div class="modal-overlay" id="col-settings-modal">
-    <div class="modal" style="width: 720px; max-width: 95vw;">
-      <div class="modal-header">
-        <h2>⚙ 列映射设置</h2>
-        <button class="close-btn" onclick="closeModal('col-settings-modal')">&times;</button>
-      </div>
-      <p style="color: #8E8E93; font-size: 12px; margin-bottom: 14px;">手动指定各类型对应的表格列名，留空则使用自动识别。设置后下次上传生效。</p>
-      <div class="col-settings-grid" id="col-settings-form">
-        <div class="col-setting-row">
-          <label>FBA可售库存列:</label>
-          <select id="cs-available"><option value="">（自动识别）</option></select>
-        </div>
-        <div class="col-setting-row">
-          <label>3天销量列:</label>
-          <select id="cs-sales3"><option value="">（自动识别）</option></select>
-        </div>
-        <div class="col-setting-row">
-          <label>7天销量列:</label>
-          <select id="cs-sales7"><option value="">（自动识别）</option></select>
-        </div>
-        <div class="col-setting-row">
-          <label>15天销量列:</label>
-          <select id="cs-sales15"><option value="">（自动识别）</option></select>
-        </div>
-        <div class="col-setting-row">
-          <label>30天销量列:</label>
-          <select id="cs-sales30"><option value="">（自动识别）</option></select>
-        </div>
-        <div class="col-setting-row">
-          <label>昨日销量列:</label>
-          <select id="cs-yesterday"><option value="">（自动识别）</option></select>
-        </div>
-        <div class="col-setting-row">
-          <label>未出货订单列:</label>
-          <select id="cs-unshipped"><option value="">（自动识别）</option></select>
-        </div>
-        <div class="col-setting-row">
-          <label>本周出库列:</label>
-          <select id="cs-week-outbound"><option value="">（自动识别）</option></select>
-        </div>
-        <div class="col-setting-section">
-          <label>在途库存列（可多选）:</label>
-          <div class="col-multi-select" id="cs-transit"></div>
-        </div>
-        <div class="col-setting-section">
-          <label>采购中/下单中库存列（可多选）:</label>
-          <div class="col-multi-select" id="cs-purchasing"></div>
-        </div>
-        <div class="col-setting-section">
-          <label>忽略列（不参与识别，可多选）:</label>
-          <div class="col-multi-select" id="cs-ignore"></div>
-        </div>
-      </div>
-      <div style="margin-top: 16px; display: flex; gap: 10px;">
-        <button class="btn btn-primary" onclick="saveColumnSettings()">保存设置</button>
-        <button class="btn btn-danger" onclick="clearColumnSettings()">清除手动设置</button>
-        <button class="btn btn-secondary" onclick="closeModal('col-settings-modal')">关闭</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- View Upload Data Modal (admin online viewing) -->
-  <div class="modal-overlay" id="view-data-modal">
-    <div class="modal" style="width: 1200px; max-width: 96vw;">
-      <div class="modal-header">
-        <h2 id="view-data-title">📊 查看上传数据</h2>
-        <button class="close-btn" onclick="closeModal('view-data-modal')">&times;</button>
-      </div>
-      <div id="view-data-loading" style="text-align: center; padding: 40px; color: #8E8E93; display: none;">加载中...</div>
-      <div class="table-container" id="view-data-table-container" style="max-height: 70vh;">
-        <table class="data-table" id="view-data-table">
-          <thead></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <div style="margin-top: 10px; display: flex; justify-content: space-between; align-items: center;">
-        <span id="view-data-info" style="color: #8E8E93; font-size: 12px;"></span>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn btn-warning" onclick="exportViewData()" id="view-data-export-btn" style="display:none;">📊 导出表格</button>
-          <button class="btn btn-secondary" onclick="closeModal('view-data-modal')">关闭</button>
-        </div>
-      </div>
-      <!-- Admin Notes Section -->
-      <div id="view-data-notes-section" style="margin-top: 14px; display: none;">
-        <div class="weight-section-title">📝 管理员备注</div>
-        <div id="admin-notes-list" style="max-height: 150px; overflow-y: auto; margin-bottom: 8px;"></div>
-        <div style="display: flex; gap: 8px;">
-          <input type="text" id="admin-note-input" placeholder="输入备注内容（提醒运营注意问题...）" style="flex:1; padding:8px 12px; border-radius:10px; border:1px solid #E5E5EA; font-size:13px;">
-          <button class="btn btn-primary" style="padding:6px 16px; font-size:12px;" onclick="addAdminNote()">添加备注</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Weight Config Modal (加权算法配置) -->
-  <div class="modal-overlay" id="weight-config-modal">
-    <div class="modal" style="width: 680px; max-width: 95vw;">
-      <div class="modal-header">
-        <h2>🧮 加权销量算法配置</h2>
-        <button class="close-btn" onclick="closeModal('weight-config-modal')">&times;</button>
-      </div>
-      <p style="color: #8E8E93; font-size: 12px; margin-bottom: 14px;">配置加权日均销量的计算权重，四项权重之和必须等于100%。</p>
-      <div class="weight-config-grid">
-        <div class="weight-row">
-          <label>3天销量权重：</label>
-          <input type="range" id="weight-3d" min="0" max="100" value="20" class="weight-slider" oninput="updateWeightHint()">
-          <span class="weight-val" id="weight-3d-val">20%</span>
-        </div>
-        <div class="weight-row">
-          <label>7天销量权重：</label>
-          <input type="range" id="weight-7d" min="0" max="100" value="30" class="weight-slider" oninput="updateWeightHint()">
-          <span class="weight-val" id="weight-7d-val">30%</span>
-        </div>
-        <div class="weight-row">
-          <label>15天销量权重：</label>
-          <input type="range" id="weight-15d" min="0" max="100" value="30" class="weight-slider" oninput="updateWeightHint()">
-          <span class="weight-val" id="weight-15d-val">30%</span>
-        </div>
-        <div class="weight-row">
-          <label>30天销量权重：</label>
-          <input type="range" id="weight-30d" min="0" max="100" value="20" class="weight-slider" oninput="updateWeightHint()">
-          <span class="weight-val" id="weight-30d-val">20%</span>
-        </div>
-      </div>
-      <div class="weight-hint" id="weight-hint">当前总计：100% ✓</div>
-
-      <div class="weight-section-title">备货参数</div>
-      <div class="weight-params">
-        <div class="weight-param-row">
-          <label>备货月数：</label>
-          <input type="number" id="stock-months" value="4" min="1" max="12" step="1">
-          <span style="color:#8E8E93; font-size:12px;">个月（目标库存 = 月销量 × 备货月数）</span>
-        </div>
-        <div class="weight-param-row">
-          <label style="display:flex;align-items:center;gap:6px;">
-            <input type="checkbox" id="deduct-unshipped" checked>
-            扣除未出货订单
-          </label>
-          <span style="color:#8E8E93; font-size:12px;">计算剩余库存时扣除未出货订单数</span>
-        </div>
-        <div class="weight-param-row">
-          <label style="display:flex;align-items:center;gap:6px;">
-            <input type="checkbox" id="deduct-week-outbound" checked>
-            扣除本周出库
-          </label>
-          <span style="color:#8E8E93; font-size:12px;">计算剩余库存时扣除本周预计出库数</span>
-        </div>
-      </div>
-
-      <div class="weight-section-title">备货规则表</div>
-      <p style="color: #8E8E93; font-size: 12px; margin-bottom: 8px;">规则按优先级从高到低匹配，月销量满足范围的第一条生效规则决定备货倍数。上限为0表示无限制。</p>
-      <div class="table-container" style="max-height: 220px; margin-bottom: 10px;">
-        <table class="data-table" id="stocking-rules-table">
-          <thead><tr><th>规则名称</th><th>月销量下限</th><th>月销量上限</th><th>备货倍数</th><th>优先级</th><th>状态</th><th>操作</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <div style="display:flex; gap:8px; margin-bottom: 14px;">
-        <button class="btn btn-outline" style="padding:5px 12px; font-size:12px;" onclick="addStockingRule()">+ 添加规则</button>
-        <button class="btn btn-secondary" style="padding:5px 12px; font-size:12px;" onclick="loadStockingRules()">刷新</button>
-      </div>
-
-      <div style="display: flex; gap: 10px; justify-content: flex-end;">
-        <button class="btn btn-secondary" onclick="resetWeightDefaults()">恢复默认</button>
-        <button class="btn btn-primary" onclick="saveWeightConfig()">💾 保存配置</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Permission Editor Modal (权限编辑) -->
-  <div class="modal-overlay" id="perm-editor-modal">
-    <div class="modal" style="width: 520px; max-width: 95vw;">
-      <div class="modal-header">
-        <h2>🔒 用户权限设置</h2>
-        <button class="close-btn" onclick="closeModal('perm-editor-modal')">&times;</button>
-      </div>
-      <p style="color: #8E8E93; font-size: 12px; margin-bottom: 4px;">为用户 <strong id="perm-username"></strong> 设置可访问的功能模块</p>
-      <p style="color: #8E8E93; font-size: 11px; margin-bottom: 14px;">不勾选的模块将对该用户隐藏，管理员默认拥有全部权限。</p>
-      <div class="perm-grid" id="perm-grid">
-        <label class="perm-item"><input type="checkbox" data-perm="upload" checked><span>📁 上传表格</span></label>
-        <label class="perm-item"><input type="checkbox" data-perm="column_settings" checked><span>⚙ 列设置</span></label>
-        <label class="perm-item"><input type="checkbox" data-perm="batch_analysis" checked><span>📋 批量分析</span></label>
-        <label class="perm-item"><input type="checkbox" data-perm="auto_calculate" checked><span>🧮 自动计算</span></label>
-        <label class="perm-item"><input type="checkbox" data-perm="export" checked><span>📊 导出表格</span></label>
-        <label class="perm-item"><input type="checkbox" data-perm="seckill" checked><span>⚡ 提报秒杀</span></label>
-        <label class="perm-item"><input type="checkbox" data-perm="history" checked><span>📋 历史记录</span></label>
-        <label class="perm-item"><input type="checkbox" data-perm="clear_data" checked><span>🗑 清除记录</span></label>
-        <label class="perm-item"><input type="checkbox" data-perm="rules" checked><span>📖 规则说明</span></label>
-        <label class="perm-item"><input type="checkbox" data-perm="weight_config" checked><span>🧮 加权算法</span></label>
-      </div>
-      <div style="margin-top: 16px; display: flex; gap: 10px; justify-content: flex-end;">
-        <button class="btn btn-outline" onclick="toggleAllPerms(true)">全选</button>
-        <button class="btn btn-outline" onclick="toggleAllPerms(false)">全不选</button>
-        <button class="btn btn-primary" onclick="saveUserPermissions()">💾 保存权限</button>
-      </div>
     </div>
   </div>
 
