@@ -15,7 +15,6 @@ let colIdxMap = {};
 let greenRows = new Set();
 let seckillItems = [];
 let tableData = [];
-let originalFileBuffer = null; // Raw ArrayBuffer of uploaded file for ExcelJS format-preserving export
 let batchFiles = [];
 let manualColumnMappings = {}; // User's manual column mapping overrides
 let originalFileName = ''; // Store original uploaded filename
@@ -675,8 +674,6 @@ function loadExcel(file) {
   showProgress(10);
   const reader = new FileReader();
   reader.onload = async function(e) {
-    // Save a copy of the raw file buffer for ExcelJS format-preserving export
-    originalFileBuffer = e.target.result.slice(0);
     showProgress(30);
     const data = new Uint8Array(e.target.result);
     workbook = XLSX.read(data, { type: 'array', cellStyles: true });
@@ -977,145 +974,24 @@ function downloadBatchResult(result, origName) {
 }
 
 // ========== Export ==========
-async function exportResult() {
+function exportResult() {
   if (!worksheet || !workbook) { showToast('没有数据可导出'); return; }
 
-  // Sync editable cells from DOM back to tableData
-  const tbody = document.querySelector('#data-table tbody');
-  if (tbody) {
-    tbody.querySelectorAll('tr').forEach((tr, rIdx) => {
-      tr.querySelectorAll('td').forEach((td, cIdx) => {
-        if (cIdx < headers.length) tableData[rIdx][headers[cIdx]] = td.textContent;
-      });
-    });
-  }
-
-  // Try ExcelJS first (reads original file binary, preserves ALL formatting natively)
-  if (originalFileBuffer && typeof ExcelJS !== 'undefined') {
-    try {
-      await exportWithExcelJS();
-      return;
-    } catch(e) {
-      console.error('ExcelJS export failed, falling back to SheetJS:', e);
-    }
-  }
-  // Fallback to SheetJS cell-clone approach
-  exportWithSheetJS();
-}
-
-// ExcelJS: load original file, update ONLY calculated cells, write out
-async function exportWithExcelJS() {
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(originalFileBuffer);
-  const ws = wb.worksheets[0];
-  if (!ws) throw new Error('No worksheet found');
-
-  // Build header map: header text -> column number (1-based)
-  const headerRow = ws.getRow(1);
-  const headerMap = {};
-  const colCount = ws.columnCount;
-  for (let c = 1; c <= colCount; c++) {
-    const cell = headerRow.getCell(c);
-    const val = cell.value;
-    if (val !== null && val !== undefined) {
-      const text = (typeof val === 'object' && val.richText)
-        ? val.richText.map(r => r.text).join('')
-        : String(val).trim();
-      if (text) headerMap[text] = c;
-    }
-  }
-
-  // Calculated column aliases for fuzzy matching
-  const calcColAliases = {
-    weekShip:   ['本周要出库库存', '本周要出', '本周出库', '本周要出库存'],
-    seaOrder:   ['海运下单', '下单', '海运'],
-    date:       ['改出货日期', '出货日期', '日期'],
-    handling:   ['清货建议', '处理建议', '充公建议', '其他建议', '行动建议'],
-    confiscate: ['充公数量', '充公', '转其他团队'],
-    aiAdvice:   ['AI建议', '发货建议', '渠道建议', '物流建议'],
-  };
-
-  // Resolve each calculated column to an Excel column number, creating if needed
-  const calcColNums = {};
-  let nextNewCol = colCount + 1;
-
-  for (const [key, aliases] of Object.entries(calcColAliases)) {
-    let found = false;
-    // 1) Try matching via colIdxMap header name
-    if (key in colIdxMap) {
-      const hdrName = String(headers[colIdxMap[key]]).trim();
-      if (headerMap[hdrName]) { calcColNums[key] = headerMap[hdrName]; found = true; }
-    }
-    // 2) Try exact alias match
-    if (!found) {
-      for (const alias of aliases) {
-        if (headerMap[alias]) { calcColNums[key] = headerMap[alias]; found = true; break; }
-      }
-    }
-    // 3) Try substring match
-    if (!found) {
-      for (const [hdr, colNum] of Object.entries(headerMap)) {
-        for (const alias of aliases) {
-          if (hdr.includes(alias) || alias.includes(hdr)) { calcColNums[key] = colNum; found = true; break; }
-        }
-        if (found) break;
-      }
-    }
-    // 4) Create new column on the right
-    if (!found) {
-      const newColNum = nextNewCol++;
-      const displayName = (key in colIdxMap) ? String(headers[colIdxMap[key]]) : aliases[0];
-      const newHeaderCell = headerRow.getCell(newColNum);
-      newHeaderCell.value = displayName;
-      newHeaderCell.font = { bold: true };
-      calcColNums[key] = newColNum;
-    }
-  }
-
-  // Write calculated values — ONLY touch the calculated cells, leave everything else intact
-  for (let rIdx = 0; rIdx < tableData.length; rIdx++) {
-    const excelRow = rIdx + 2; // row 1 is header
-    const row = tableData[rIdx];
-    for (const [key, colNum] of Object.entries(calcColNums)) {
-      if (!(key in colIdxMap)) continue;
-      let val = row[headers[colIdxMap[key]]];
-      if (typeof val === 'string') {
-        const numVal = Number(val);
-        if (!isNaN(numVal) && val.trim() !== '') val = numVal;
-      }
-      ws.getCell(excelRow, colNum).value = (val !== '' && val !== null && val !== undefined) ? val : '';
-    }
-  }
-
-  // Generate file and trigger download
-  const buffer = await wb.xlsx.writeBuffer();
-  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  let exportName = '备货分析_' + new Date().toISOString().slice(0, 10) + '.xlsx';
-  if (originalFileName) exportName = originalFileName.replace(/\.xlsx?$/i, '') + '_已填充.xlsx';
-  a.download = exportName;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  showToast('导出成功！ExcelJS模式 - 完整保留原始格式');
-}
-
-// SheetJS fallback: cell-by-cell clone approach
-function exportWithSheetJS() {
   const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
 
+  // Clone the ENTIRE original worksheet cell-by-cell to preserve all formatting,
+  // colors, fonts, borders, number formats, comments, data validation, etc.
   const newWs = {};
   for (let r = range.s.r; r <= range.e.r; r++) {
     for (let c = range.s.c; c <= range.e.c; c++) {
       const cellRef = XLSX.utils.encode_cell({ r, c });
       const origCell = worksheet[cellRef];
       if (origCell) {
+        // Deep clone every property of the cell (v, t, w, f, s, z, c, etc.)
         newWs[cellRef] = {};
         for (const key of Object.keys(origCell)) {
           if (key === 's' || key === 'c') {
+            // Deep clone style and comment objects
             try { newWs[cellRef][key] = JSON.parse(JSON.stringify(origCell[key])); }
             catch(e) { newWs[cellRef][key] = origCell[key]; }
           } else {
@@ -1127,13 +1003,18 @@ function exportWithSheetJS() {
   }
   newWs['!ref'] = worksheet['!ref'];
 
+  // Copy ALL sheet-level metadata (cols, rows, merges, views, protection, outlines, etc.)
   for (const key of Object.keys(worksheet)) {
     if (key.startsWith('!')) {
-      if (key === '!merges') { newWs[key] = JSON.parse(JSON.stringify(worksheet[key])); }
-      else { newWs[key] = worksheet[key]; }
+      if (key === '!merges') {
+        newWs[key] = JSON.parse(JSON.stringify(worksheet[key]));
+      } else {
+        newWs[key] = worksheet[key];
+      }
     }
   }
 
+  // Only update calculated columns with new values
   const colMap = autoMapColumns(headers);
   const calcFields = ['weekShip', 'seaOrder', 'date', 'handling', 'confiscate', 'aiAdvice'];
   for (const field of calcFields) {
@@ -1141,40 +1022,59 @@ function exportWithSheetJS() {
     if (!colHeader) continue;
     const colIdx = headers.indexOf(colHeader);
     if (colIdx < 0) continue;
+    // Write calculated values for each data row
     for (let rIdx = 0; rIdx < tableData.length; rIdx++) {
-      const cellRef = XLSX.utils.encode_cell({ r: rIdx + 1, c: colIdx });
+      const cellRef = XLSX.utils.encode_cell({ r: rIdx + 1, c: colIdx }); // +1 for header row
       const val = tableData[rIdx][colHeader];
       if (val !== undefined && val !== null && val !== '') {
+        // If cell already exists, only update value/type, preserve style
         if (newWs[cellRef]) {
           const numVal = parseNum(val);
           if (!isNaN(numVal) && String(numVal) === String(val)) {
-            newWs[cellRef].t = 'n'; newWs[cellRef].v = numVal; delete newWs[cellRef].w;
+            newWs[cellRef].t = 'n';
+            newWs[cellRef].v = numVal;
+            delete newWs[cellRef].w; // Let SheetJS regenerate formatted text
           } else {
-            newWs[cellRef].t = 's'; newWs[cellRef].v = String(val); delete newWs[cellRef].w;
+            newWs[cellRef].t = 's';
+            newWs[cellRef].v = String(val);
+            delete newWs[cellRef].w;
           }
         } else {
+          // Cell doesn't exist yet (new calculated column), create it
           const numVal = parseNum(val);
-          if (!isNaN(numVal) && String(numVal) === String(val)) { newWs[cellRef] = { t: 'n', v: numVal }; }
-          else { newWs[cellRef] = { t: 's', v: String(val) }; }
+          if (!isNaN(numVal) && String(numVal) === String(val)) {
+            newWs[cellRef] = { t: 'n', v: numVal };
+          } else {
+            newWs[cellRef] = { t: 's', v: String(val) };
+          }
         }
       }
     }
   }
 
+  // Update sheet range if we added columns beyond the original range
   const newRange = XLSX.utils.decode_range(newWs['!ref'] || 'A1');
-  if (range.e.c > newRange.e.c) { newRange.e.c = range.e.c; newWs['!ref'] = XLSX.utils.encode_range(newRange); }
+  if (range.e.c > newRange.e.c) {
+    newRange.e.c = range.e.c;
+    newWs['!ref'] = XLSX.utils.encode_range(newRange);
+  }
 
+  // Create new workbook from the cloned sheet
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, newWs, workbook.SheetNames[0] || 'Sheet1');
+
+  // Preserve original filename with suffix
   let exportName = '备货分析_' + new Date().toISOString().slice(0, 10) + '.xlsx';
-  if (originalFileName) exportName = originalFileName.replace(/\.xlsx?$/i, '') + '_已填充.xlsx';
+  if (originalFileName) {
+    exportName = originalFileName.replace(/\.xlsx?$/i, '') + '_已填充.xlsx';
+  }
   XLSX.writeFile(wb, exportName, { cellStyles: true, bookType: 'xlsx' });
-  showToast('导出成功！SheetJS兼容模式');
+  showToast('导出成功！已完整保留原始表格格式、颜色、备注');
 }
 
 function clearData() {
   workbook = null; worksheet = null; headers = []; colIdxMap = {}; greenRows.clear();
-  seckillItems = []; tableData = []; originalFileName = ''; originalFileBuffer = null;
+  seckillItems = []; tableData = []; originalFileName = '';
   document.getElementById('toolbar').style.display = 'none';
   document.getElementById('status-bar').style.display = 'none';
   document.getElementById('table-container').style.display = 'none';
