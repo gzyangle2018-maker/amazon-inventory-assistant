@@ -1,7 +1,6 @@
 name = "amazon-inventory-assistant"
 main = "src/index.js"
 compatibility_date = "2026-05-11"
-account_id = "ebba6be2d4369da1443736cb2f66b182"
 
 # Cloudflare Pages 配置
 [site]
