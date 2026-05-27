@@ -144,7 +144,7 @@ function autoMapColumns(hdrs) {
     purchasing: ['采购中', '采购中库存', '下单中', '已采购'],
     weekShip: ['本周要出库库存', '本周要出', '本周出库', '本周要出库存'],
     seaSup: ['海运补单', '海运补'],
-    seaOrder: ['海运下单', '下单', '海运'],
+    seaOrder: ['海运', '海运下单', '下单'],
     date: ['改出货日期', '出货日期', '日期'],
     remark: ['备注', '说明'],
     handling: ['清货建议', '处理建议', '充公建议', '其他建议', '行动建议'],
@@ -204,7 +204,7 @@ function autoMapColumns(hdrs) {
         if (hStr.toLowerCase().includes(aLower)) {
           if (key === 'available') {
             const hLower = hStr.toLowerCase();
-            const excludeKw = ['在途', '采购', '下单', '货件', 'shipment', '充公', '未出货'];
+            const excludeKw = ['在途', '采购', '下单', '货件', 'shipment', '充公', '未出货', '出库', '推荐', '目标', '总计', '合计'];
             if (excludeKw.some(kw => hLower.includes(kw))) continue;
           }
           colMap[key] = hStr; break;
@@ -219,7 +219,7 @@ function autoMapColumns(hdrs) {
   for (const h of hdrs) {
     const hStr = h !== null && h !== undefined ? String(h) : '';
     if (ignoreSet.has(hStr)) continue;
-    if (hStr.toUpperCase().startsWith('FBA') && hStr.length > 3) {
+    if (hStr.toUpperCase().includes('FBA') && hStr.length > 3) {
       // Exclude auxiliary/display columns like "FBA现有库存"
       const hLower = hStr.toLowerCase();
       if (['现有', '库存', '合计', '总计'].some(kw => hLower.includes(kw))) continue;
@@ -261,20 +261,32 @@ function analyzeRow(row, colMap, isGreen = false) {
   const sales3 = parseNum(row[colMap.sales3]);
   const monthlySales = parseNum(row[colMap.monthlySales]);
   const available = parseNum(row[colMap.available]);
-  // Sum all in-transit columns
+  // Sum in-transit inventory (avoid double-counting pre-computed totals with individual FBA columns)
   let unshipped = 0;
-  for (const col of colMap.all_in_transit || []) {
-    unshipped += parseNum(row[col]);
+  const transitCols = colMap.all_in_transit || [];
+  const fbaCols = colMap.fba_shipments || [];
+  const transitTotalCol = transitCols.find(h => /合计|总计/.test(h));
+  if (transitTotalCol && transitCols.length === 1) {
+    // Pre-computed total column like "在途库存合计" — use directly
+    unshipped = parseNum(row[transitTotalCol]);
+  } else {
+    // Sum individual in-transit and FBA shipment columns
+    for (const col of transitCols) {
+      unshipped += parseNum(row[col]);
+    }
+    for (const col of fbaCols) {
+      unshipped += parseNum(row[col]);
+    }
   }
-  for (const col of colMap.fba_shipments || []) {
-    unshipped += parseNum(row[col]);
-  }
-  // Sum all purchasing columns
+  // Sum purchasing columns (deduplicate single key vs array)
   let purchasing = 0;
-  for (const col of colMap.all_purchasing || []) {
+  const purchCols = colMap.all_purchasing || [];
+  for (const col of purchCols) {
     purchasing += parseNum(row[col]);
   }
-  if (colMap.purchasing) purchasing += parseNum(row[colMap.purchasing]);
+  if (colMap.purchasing && !purchCols.includes(colMap.purchasing)) {
+    purchasing += parseNum(row[colMap.purchasing]);
+  }
   const unshippedOrders = parseNum(row[colMap.unshippedOrders]);
   const weekOutbound = parseNum(row[colMap.weekOutbound]);
   const sku = row[colMap.sku] || '';
