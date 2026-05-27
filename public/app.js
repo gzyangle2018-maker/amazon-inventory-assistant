@@ -95,6 +95,24 @@ const PRODUCT_TYPES = {
   gan50: { name: '氮化镓/小壳子(50装)', qty: 50 },
 };
 
+// Auxiliary calculation columns — intermediate results from analyzeRow displayed as table columns
+const AUX_COLUMNS = [
+  { key: 'daily_weighted', name: '加权日销', format: v => (v !== undefined && v !== '' && !isNaN(v)) ? Number(v).toFixed(2) : '' },
+  { key: 'daily_sales', name: '日均销量', format: v => (v !== undefined && v !== '' && !isNaN(v)) ? Number(v).toFixed(1) : '' },
+  { key: 'target_stock', name: '目标库存', format: v => (v !== undefined && !isNaN(v)) ? Math.round(v) : '' },
+  { key: 'suggest_restock', name: '建议补货', format: v => (v !== undefined && !isNaN(v)) ? Math.round(v) : '' },
+  { key: 'actual_restock', name: '实际补货', format: v => (v !== undefined && !isNaN(v)) ? Math.round(v) : '' },
+  { key: 'qty_per_box', name: '每箱数量', format: v => (v !== undefined && !isNaN(v)) ? Math.round(v) : '' },
+  { key: 'total_inv', name: '总库存', format: v => (v !== undefined && !isNaN(v)) ? Math.round(v) : '' },
+  { key: 'unshipped_orders', name: '未出货', format: v => (v !== undefined && !isNaN(v)) ? Math.round(v) : '' },
+  { key: 'week_ship', name: '本周出', format: v => (v !== undefined && !isNaN(v) && Number(v) > 0) ? Math.round(v) : '' },
+  { key: 'monthly_sales', name: '月销量', format: v => (v !== undefined && !isNaN(v)) ? Math.round(v) : '' },
+  { key: 'is_stagnant', name: '滞销', format: v => v ? '是' : '' },
+  { key: 'is_deep', name: '深度款', format: v => v ? '是' : '' },
+  { key: 'is_high_volume', name: '高销量', format: v => v ? '是' : '' },
+  { key: 'ptype', name: '产品类型', format: v => (v && PRODUCT_TYPES[v]) ? PRODUCT_TYPES[v].name : (v || '') },
+];
+
 function isGreenCell(cell) {
   if (!cell || !cell.s || !cell.s.fgColor) return false;
   const rgb = cell.s.fgColor.rgb;
@@ -701,6 +719,10 @@ function loadExcel(file) {
     let modified = false;
     if (!colMap.aiAdvice) { headers.push('AI建议'); colMap.aiAdvice = 'AI建议'; modified = true; }
     if (!colMap.handling) { headers.push('处理建议'); colMap.handling = '处理建议'; modified = true; }
+    // Ensure auxiliary calculation columns exist
+    for (const aux of AUX_COLUMNS) {
+      if (headers.indexOf(aux.name) < 0) { headers.push(aux.name); modified = true; }
+    }
     if (modified) {
       tableData.forEach(row => {
         headers.forEach(h => { if (!(h in row)) row[h] = ''; });
@@ -862,6 +884,13 @@ function autoCalculate() {
     for (const [key, val] of Object.entries(calcMapping)) {
       if (key in colIdxMap) row[headers[colIdxMap[key]]] = val;
     }
+    // Write auxiliary calculation columns
+    for (const aux of AUX_COLUMNS) {
+      const colIdx = headers.indexOf(aux.name);
+      if (colIdx >= 0) {
+        row[headers[colIdx]] = aux.format(result._meta[aux.key]);
+      }
+    }
   }
 
   renderTable();
@@ -936,9 +965,15 @@ function processBatchFile(file) {
         });
 
         const colMap = autoMapColumns(hdrs);
-        if (!colMap.aiAdvice) hdrs.push('AI建议');
-        if (!colMap.handling) hdrs.push('处理建议');
-        rows.forEach(row => hdrs.forEach(h => { if (!(h in row)) row[h] = ''; }));
+        let modified = false;
+        if (!colMap.aiAdvice) { hdrs.push('AI建议'); modified = true; }
+        if (!colMap.handling) { hdrs.push('处理建议'); modified = true; }
+        for (const aux of AUX_COLUMNS) {
+          if (hdrs.indexOf(aux.name) < 0) { hdrs.push(aux.name); modified = true; }
+        }
+        if (modified) {
+          rows.forEach(row => hdrs.forEach(h => { if (!(h in row)) row[h] = ''; }));
+        }
 
         const greens = new Set();
         const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
@@ -953,6 +988,12 @@ function processBatchFile(file) {
             handling: result.handling, confiscate: result.confiscate, aiAdvice: result.aiAdvice };
           for (const [key, val] of Object.entries(calcMapping)) {
             if (key in colMap) rows[rIdx][colMap[key]] = val;
+          }
+          // Write auxiliary columns
+          for (const aux of AUX_COLUMNS) {
+            if (hdrs.indexOf(aux.name) >= 0) {
+              rows[rIdx][aux.name] = aux.format(result._meta[aux.key]);
+            }
           }
         }
 
