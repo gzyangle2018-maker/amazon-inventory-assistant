@@ -1146,6 +1146,19 @@ function exportResult() {
         }
       }
 
+      // Also include 处理建议 and AI建议 columns
+      const extraHeaders = ['处理建议', 'AI建议'];
+      for (const eh of extraHeaders) {
+        if (auxColMap[eh] !== undefined) continue; // already mapped
+        if (colNameMap[eh] !== undefined) {
+          auxColMap[eh] = colNameMap[eh];
+        } else if (emptyIdx < emptyCols.length) {
+          auxColMap[eh] = emptyCols[emptyIdx++];
+        } else {
+          auxColMap[eh] = nextNewCol++;
+        }
+      }
+
       if (Object.keys(targets).length === 0 && Object.keys(auxColMap).length === 0) {
         showToast('未找到目标列，请确认表格包含"本周要出库存"和"改出货日期"列');
         return;
