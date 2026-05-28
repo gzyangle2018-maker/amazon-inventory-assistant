@@ -1045,222 +1045,328 @@ function downloadBatchResult(result, origName) {
   XLSX.writeFile(wb, newName);
 }
 
-// ========== Export (ZIP-based: preserves 100% original formatting) ==========
-function colToLetter(idx) {
-  let s = '';
-  idx++;
-  while (idx > 0) { idx--; s = String.fromCharCode(65 + idx % 26) + s; idx = Math.floor(idx / 26); }
-  return s;
-}
-
-function xmlEsc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
+// ========== Export ==========
 function exportResult() {
-  if (!worksheet || !workbook) { showToast('没有数据可导出'); return; }
-  if (!originalFileBuffer || typeof JSZip === 'undefined') {
-    // Fallback: SheetJS export when JSZip unavailable or no buffer
-    showToast('正在使用兼容模式导出...');
-    exportResultFallback();
-    return;
-  }
+  if (!worksheet || !workbook || !originalFileBuffer) { showToast('没有数据可导出'); return; }
+  if (typeof JSZip === 'undefined') { showToast('缺少JSZip库，无法导出'); return; }
 
-  exportResultZip();
-}
+  // ZIP-based export: preserve original format/styles/colors/formulas
+  // Only update specific AI result columns (本周要出库存, 改出货日期)
+  const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 
-async function exportResultZip() {
-  try {
-    showToast('正在生成导出文件...');
-    const zip = await JSZip.loadAsync(originalFileBuffer);
-    const sheetPath = zip.file('xl/worksheets/sheet1.xml') ? 'xl/worksheets/sheet1.xml' :
-      Object.keys(zip.files).find(f => f.match(/xl\/worksheets\/sheet\d+\.xml/)) || 'xl/worksheets/sheet1.xml';
-    const sheetXml = await zip.file(sheetPath).async('string');
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(sheetXml, 'text/xml');
+  async function doExport() {
+    try {
+      showToast('正在生成导出文件...');
+      const zip = await JSZip.loadAsync(originalFileBuffer);
 
-    // Load shared strings
-    let ssStrings = [];
-    const ssFile = zip.file('xl/sharedStrings.xml');
-    if (ssFile) {
-      const ssXml = await ssFile.async('string');
-      const ssDoc = parser.parseFromString(ssXml, 'text/xml');
-      const sis = ssDoc.getElementsByTagName('si');
-      for (let i = 0; i < sis.length; i++) {
-        let text = '';
-        const ts = sis[i].getElementsByTagName('t');
-        for (let j = 0; j < ts.length; j++) text += (ts[j].textContent || '');
-        ssStrings.push(text);
+      // Find sheet XML path
+      const sheetPath = zip.file('xl/worksheets/sheet1.xml') ? 'xl/worksheets/sheet1.xml' :
+        Object.keys(zip.files).find(f => f.match(/xl\/worksheets\/sheet\d+\.xml/)) || 'xl/worksheets/sheet1.xml';
+      const sheetXml = await zip.file(sheetPath).async('string');
+
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(sheetXml, 'text/xml');
+
+      // Load shared strings
+      let ssStrings = [];
+      const ssFile = zip.file('xl/sharedStrings.xml');
+      if (ssFile) {
+        const ssXml = await ssFile.async('string');
+        const ssDoc = parser.parseFromString(ssXml, 'text/xml');
+        const sis = ssDoc.getElementsByTagName('si');
+        for (let i = 0; i < sis.length; i++) {
+          let text = '';
+          const ts = sis[i].getElementsByTagName('t');
+          for (let j = 0; j < ts.length; j++) text += (ts[j].textContent || '');
+          ssStrings.push(text);
+        }
       }
-    }
 
-    // Read header row to build column name → column index mapping
-    const allRows = doc.getElementsByTagName('row');
-    if (!allRows.length) { showToast('工作表为空'); return; }
-    const headerRow = allRows[0];
-    const hCells = headerRow.getElementsByTagName('c');
-    const colNameMap = {}; // headerName → 0-based col index
-    for (let i = 0; i < hCells.length; i++) {
-      const cell = hCells[i];
-      const ref = cell.getAttribute('r') || '';
-      const colLetters = ref.replace(/\d+/g, '');
-      let ci = 0;
-      for (let k = 0; k < colLetters.length; k++) ci = ci * 26 + colLetters.charCodeAt(k) - 64;
-      ci--;
-      let val = '';
-      if (cell.getAttribute('t') === 's') {
-        const vEl = cell.getElementsByTagName('v')[0];
-        if (vEl) val = ssStrings[parseInt(vEl.textContent)] || '';
-      } else {
-        const vEl = cell.getElementsByTagName('v')[0];
-        if (vEl) val = vEl.textContent || '';
-      }
-      val = String(val).trim();
-      if (val) colNameMap[val] = ci;
-    }
-
-    // Calculate header offset (if app added columns beyond original)
-    const origMaxCol = Math.max(...Object.values(colNameMap), -1);
-    const headerOffset = Math.max(0, headers.indexOf('AI建议') > origMaxCol ? headers.indexOf('AI建议') - origMaxCol - 1 : 0);
-
-    // Build target column map
-    const targets = {};
-    const calcFields = ['weekShip','seaOrder','date','handling','confiscate','aiAdvice'];
-    const colMap = autoMapColumns(headers);
-    for (const field of calcFields) {
-      const hdr = colMap[field];
-      if (hdr && colNameMap[hdr] !== undefined) targets[colNameMap[hdr]] = hdr;
-    }
-    for (const aux of AUX_COLUMNS) {
-      const ci = headers.indexOf(aux.name);
-      if (ci >= 0 && colNameMap[aux.name] !== undefined) targets[colNameMap[aux.name]] = aux.name;
-    }
-    // Also map newly-added columns not in original headers
-    for (let i = 0; i < headers.length; i++) {
-      const h = headers[i];
-      if (!h) continue;
-      if (colNameMap[h] !== undefined) continue;
-      // Column was added by app — find its position
-      const calcIdx = calcFields.findIndex(f => colMap[f] === h);
-      const auxIdx = AUX_COLUMNS.findIndex(a => a.name === h);
-      if (calcIdx >= 0 || auxIdx >= 0) {
-        // Map to original max col + offset
-        const newCi = origMaxCol + 1 + (i - (headers.indexOf('AI建议') >= 0 ? headers.indexOf('AI建议') : headers.length));
-        if (newCi >= 0) targets[newCi] = h;
-      }
-    }
-
-    // Process data rows (skip header row 0)
-    const targetKeys = new Set(Object.keys(targets).map(Number));
-    for (let ri = 1; ri < allRows.length; ri++) {
-      const dataRow = allRows[ri];
-      const rIdx = ri - 1;
-      if (rIdx >= tableData.length) break;
-      const cells = Array.from(dataRow.getElementsByTagName('c'));
-
-      for (const cell of cells) {
+      // Read header row to build column name → column index mapping
+      const allRows = doc.getElementsByTagName('row');
+      if (!allRows.length) { showToast('工作表为空'); return; }
+      const headerRow = allRows[0];
+      const hCells = headerRow.getElementsByTagName('c');
+      const colNameMap = {}; // headerName → 0-based col index
+      let actualMaxCol = -1; // Track actual rightmost column (including empty ones)
+      const emptyCols = []; // Columns with no header text (can be reused)
+      
+      for (let i = 0; i < hCells.length; i++) {
+        const cell = hCells[i];
         const ref = cell.getAttribute('r') || '';
         const colLetters = ref.replace(/\d+/g, '');
         let ci = 0;
         for (let k = 0; k < colLetters.length; k++) ci = ci * 26 + colLetters.charCodeAt(k) - 64;
         ci--;
-        if (!targetKeys.has(ci)) continue;
-
-        const hdr = targets[ci];
-        const val = tableData[rIdx][hdr];
-        if (val === undefined || val === null || val === '') continue;
-
-        const numVal = parseNum(val);
-        const isNum = !isNaN(numVal) && String(numVal) === String(val).trim();
-        const vEl = cell.getElementsByTagName('v')[0];
-
-        if (isNum) {
-          cell.removeAttribute('t');
-          if (vEl) { vEl.textContent = String(numVal); }
-          else { const v = doc.createElement('v'); v.textContent = String(numVal); cell.appendChild(v); }
+        if (ci > actualMaxCol) actualMaxCol = ci;
+        
+        let val = '';
+        if (cell.getAttribute('t') === 's') {
+          const vEl = cell.getElementsByTagName('v')[0];
+          if (vEl) val = ssStrings[parseInt(vEl.textContent)] || '';
         } else {
-          // Text: use shared string
-          const sv = String(val);
-          let si = ssStrings.indexOf(sv);
-          if (si < 0) { si = ssStrings.length; ssStrings.push(sv); }
-          cell.setAttribute('t', 's');
-          if (vEl) { vEl.textContent = String(si); }
-          else { const v = doc.createElement('v'); v.textContent = String(si); cell.appendChild(v); }
+          const vEl = cell.getElementsByTagName('v')[0];
+          if (vEl) val = vEl.textContent || '';
+        }
+        val = String(val).trim();
+        if (val) {
+          colNameMap[val] = ci;
+        } else {
+          // Empty header cell - can be reused
+          emptyCols.push(ci);
         }
       }
 
-      // Add new cells for columns not in original (aux columns added by app)
-      for (const [ciStr, hdr] of Object.entries(targets)) {
-        const ci = parseInt(ciStr);
-        if (cells.some(c => { const r = c.getAttribute('r')||''; const l = r.replace(/\d+/g,''); let x=0; for(let k=0;k<l.length;k++) x=x*26+l.charCodeAt(k)-64; return x-1===ci; })) continue;
-        const val = tableData[rIdx][hdr];
-        if (val === undefined || val === null || val === '') continue;
-        const rowNum = ri + 1;
-        const cellRef = colToLetter(ci) + rowNum;
-        const newCell = doc.createElement('c');
-        newCell.setAttribute('r', cellRef);
-        const numVal = parseNum(val);
-        const isNum = !isNaN(numVal) && String(numVal) === String(val).trim();
-        if (isNum) {
-          const v = doc.createElement('v'); v.textContent = String(numVal); newCell.appendChild(v);
+      // Determine target columns to update (only 本周要出库存 and 改出货日期)
+      const targetHeaders = ['本周要出库存', '改出货日期'];
+      const targets = {};
+      for (const h of targetHeaders) {
+        if (colNameMap[h] !== undefined) {
+          targets[colNameMap[h]] = h;
+        }
+      }
+
+      // Add auxiliary columns (AUX_COLUMNS) to the right side
+      // First, try to reuse empty columns, then create new ones
+      const auxColMap = {}; // aux column name -> column index
+      let nextNewCol = actualMaxCol + 1;
+      let emptyIdx = 0;
+      
+      for (let i = 0; i < AUX_COLUMNS.length; i++) {
+        const auxName = AUX_COLUMNS[i].name;
+        // If already in original, use existing column
+        if (colNameMap[auxName] !== undefined) {
+          auxColMap[auxName] = colNameMap[auxName];
+        } else if (emptyIdx < emptyCols.length) {
+          // Reuse an empty column
+          auxColMap[auxName] = emptyCols[emptyIdx++];
         } else {
+          // Create a new column
+          auxColMap[auxName] = nextNewCol++;
+        }
+      }
+
+      if (Object.keys(targets).length === 0 && Object.keys(auxColMap).length === 0) {
+        showToast('未找到目标列，请确认表格包含"本周要出库存"和"改出货日期"列');
+        return;
+      }
+
+      // Helper: convert 0-based column index to Excel column letters (A, B, ..., Z, AA, AB, ...)
+      function colIndexToLetters(ci) {
+        let s = '';
+        ci++;
+        while (ci > 0) {
+          ci--;
+          s = String.fromCharCode(65 + (ci % 26)) + s;
+          ci = Math.floor(ci / 26);
+        }
+        return s;
+      }
+
+      // Add/update auxiliary column headers in headerRow
+      // Build a map of existing cells by column index for quick lookup
+      const headerCellMap = {};
+      for (let i = 0; i < hCells.length; i++) {
+        const cell = hCells[i];
+        const ref = cell.getAttribute('r') || '';
+        const colLetters = ref.replace(/\d+/g, '');
+        let ci = 0;
+        for (let k = 0; k < colLetters.length; k++) ci = ci * 26 + colLetters.charCodeAt(k) - 64;
+        ci--;
+        headerCellMap[ci] = cell;
+      }
+      
+      for (const [auxName, ci] of Object.entries(auxColMap)) {
+        const cellRef = colIndexToLetters(ci) + '1';
+        let cell = headerCellMap[ci];
+        
+        if (cell) {
+          // Update existing empty cell - change to inlineStr with header name
+          cell.setAttribute('t', 'inlineStr');
+          cell.removeAttribute('s'); // Remove old style reference
+          // Remove existing <v> if present
+          const vEl = cell.getElementsByTagName('v')[0];
+          if (vEl) vEl.parentNode.removeChild(vEl);
+          // Create or update <is> element
+          let isEl = cell.getElementsByTagName('is')[0];
+          if (!isEl) {
+            isEl = doc.createElementNS(NS, 'is');
+            cell.appendChild(isEl);
+          }
+          let tEl = isEl.getElementsByTagName('t')[0];
+          if (!tEl) {
+            tEl = doc.createElementNS(NS, 't');
+            isEl.appendChild(tEl);
+          }
+          tEl.textContent = auxName;
+        } else {
+          // Create new cell
+          const newCell = doc.createElementNS(NS, 'c');
+          newCell.setAttribute('r', cellRef);
           newCell.setAttribute('t', 'inlineStr');
-          const is = doc.createElement('is');
-          const t = doc.createElement('t'); t.textContent = String(val); is.appendChild(t);
-          newCell.appendChild(is);
+          const isEl = doc.createElementNS(NS, 'is');
+          const tEl = doc.createElementNS(NS, 't');
+          tEl.textContent = auxName;
+          isEl.appendChild(tEl);
+          newCell.appendChild(isEl);
+          headerRow.appendChild(newCell);
         }
-        dataRow.appendChild(newCell);
       }
+
+      // Process data rows (skip header row 0)
+      for (let ri = 1; ri < allRows.length; ri++) {
+        const dataRow = allRows[ri];
+        const rIdx = ri - 1;
+        if (rIdx >= tableData.length) break;
+        const cells = Array.from(dataRow.getElementsByTagName('c'));
+
+        for (const cell of cells) {
+          const ref = cell.getAttribute('r') || '';
+          const colLetters = ref.replace(/\d+/g, '');
+          let ci = 0;
+          for (let k = 0; k < colLetters.length; k++) ci = ci * 26 + colLetters.charCodeAt(k) - 64;
+          ci--;
+          if (!(ci in targets)) continue;
+
+          const hdr = targets[ci];
+          const val = tableData[rIdx][hdr];
+          if (val === undefined || val === null || val === '') continue;
+
+          const numVal = parseNum(val);
+          const isNum = !isNaN(numVal) && String(numVal) === String(val).trim();
+          const vEl = cell.getElementsByTagName('v')[0];
+
+          if (isNum) {
+            cell.removeAttribute('t');
+            if (vEl) { vEl.textContent = String(numVal); }
+            else {
+              const v = doc.createElementNS(NS, 'v');
+              v.textContent = String(numVal);
+              cell.appendChild(v);
+            }
+          } else {
+            // Text: use inlineStr to avoid modifying shared string table
+            const sv = String(val);
+            cell.setAttribute('t', 'inlineStr');
+            // Remove existing <v> if present
+            if (vEl) vEl.parentNode.removeChild(vEl);
+            // Create or update <is> element
+            let isEl = cell.getElementsByTagName('is')[0];
+            if (!isEl) {
+              isEl = doc.createElementNS(NS, 'is');
+              cell.appendChild(isEl);
+            }
+            let tEl = isEl.getElementsByTagName('t')[0];
+            if (!tEl) {
+              tEl = doc.createElementNS(NS, 't');
+              isEl.appendChild(tEl);
+            }
+            tEl.textContent = sv;
+          }
+        }
+
+        // Add auxiliary column data cells for this row
+        // Build a map of existing cells in this row by column index
+        const rowDataCellMap = {};
+        for (const cell of cells) {
+          const ref = cell.getAttribute('r') || '';
+          const colLetters = ref.replace(/\d+/g, '');
+          let ci = 0;
+          for (let k = 0; k < colLetters.length; k++) ci = ci * 26 + colLetters.charCodeAt(k) - 64;
+          ci--;
+          rowDataCellMap[ci] = cell;
+        }
+
+        for (const [auxName, ci] of Object.entries(auxColMap)) {
+          const val = tableData[rIdx][auxName];
+          if (val === undefined || val === null || val === '') continue;
+
+          const rowNum = ri + 1; // Excel row numbers are 1-based
+          const cellRef = colIndexToLetters(ci) + rowNum;
+          const numVal = parseNum(val);
+          const isNum = !isNaN(numVal) && String(numVal) === String(val).trim();
+
+          let cell = rowDataCellMap[ci];
+          if (cell) {
+            // Update existing cell (reused empty column)
+            // Remove old type and value
+            cell.removeAttribute('t');
+            const oldV = cell.getElementsByTagName('v')[0];
+            if (oldV) oldV.parentNode.removeChild(oldV);
+            const oldIS = cell.getElementsByTagName('is')[0];
+            if (oldIS) oldIS.parentNode.removeChild(oldIS);
+
+            if (isNum) {
+              const vEl = doc.createElementNS(NS, 'v');
+              vEl.textContent = String(numVal);
+              cell.appendChild(vEl);
+            } else {
+              cell.setAttribute('t', 'inlineStr');
+              const isEl = doc.createElementNS(NS, 'is');
+              const tEl = doc.createElementNS(NS, 't');
+              tEl.textContent = String(val);
+              isEl.appendChild(tEl);
+              cell.appendChild(isEl);
+            }
+          } else {
+            // Create new cell (brand new column)
+            const newCell = doc.createElementNS(NS, 'c');
+            newCell.setAttribute('r', cellRef);
+
+            if (isNum) {
+              const vEl = doc.createElementNS(NS, 'v');
+              vEl.textContent = String(numVal);
+              newCell.appendChild(vEl);
+            } else {
+              newCell.setAttribute('t', 'inlineStr');
+              const isEl = doc.createElementNS(NS, 'is');
+              const tEl = doc.createElementNS(NS, 't');
+              tEl.textContent = String(val);
+              isEl.appendChild(tEl);
+              newCell.appendChild(isEl);
+            }
+            dataRow.appendChild(newCell);
+          }
+        }
+      }
+
+      // Update dimension element to include new auxiliary columns
+      const maxColFinal = nextNewCol - 1;
+      if (Object.keys(auxColMap).length > 0) {
+        const dimensionEl = doc.querySelector('dimension');
+        if (dimensionEl) {
+          const oldRef = dimensionEl.getAttribute('ref');
+          const match = oldRef.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
+          if (match) {
+            const newEndCol = colIndexToLetters(maxColFinal);
+            const newRef = `${match[1]}${match[2]}:${newEndCol}${match[4]}`;
+            dimensionEl.setAttribute('ref', newRef);
+          }
+        }
+      }
+
+      // Serialize sheet XML
+      const serializer = new XMLSerializer();
+      let newSheetXml = serializer.serializeToString(doc);
+      zip.file(sheetPath, newSheetXml);
+
+      // Generate and download
+      const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      let exportName = originalFileName ? originalFileName.replace(/\.xlsx?$/i, '') + '_已填充.xlsx' : '备货分析_已填充.xlsx';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = exportName;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('导出成功（已保留原始格式、颜色、公式）');
+    } catch(e) {
+      console.error('ZIP export error:', e);
+      showToast('导出失败: ' + e.message);
     }
-
-    // Expand sheet range to include new columns
-    const dimEl = doc.getElementsByTagName('dimension')[0];
-    if (dimEl) {
-      const maxTargetCol = Math.max(...Object.keys(targets).map(Number), origMaxCol);
-      const maxRow = Math.max(allRows.length, tableData.length + 1);
-      dimEl.setAttribute('ref', 'A1:' + colToLetter(maxTargetCol) + maxRow);
-    }
-
-    // Serialize sheet XML
-    const serializer = new XMLSerializer();
-    let newSheetXml = serializer.serializeToString(doc);
-    zip.file(sheetPath, newSheetXml);
-
-    // Update shared strings
-    if (ssFile) {
-      let ssXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
-      ssXml += '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="' + ssStrings.length + '" uniqueCount="' + ssStrings.length + '">';
-      for (const s of ssStrings) { ssXml += '<si><t>' + xmlEsc(s) + '</t></si>'; }
-      ssXml += '</sst>';
-      zip.file('xl/sharedStrings.xml', ssXml);
-    }
-
-    // Generate and download
-    const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    let exportName = originalFileName ? originalFileName.replace(/\.xlsx?$/i, '') + '_已填充.xlsx' : '备货分析_已填充.xlsx';
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = exportName;
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast('导出成功！已完整保留原始表格格式、颜色、备注');
-  } catch(e) {
-    console.error('ZIP export error:', e);
-    showToast('ZIP导出出错，切换到兼容模式...');
-    exportResultFallback();
   }
-}
 
-function exportResultFallback() {
-  // SheetJS fallback (no style preservation)
-  const wb = XLSX.utils.book_new();
-  const aoa = [headers, ...tableData.map(row => headers.map(h => row[h] !== undefined ? row[h] : ''))];
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  XLSX.utils.book_append_sheet(wb, ws, workbook?.SheetNames?.[0] || 'Sheet1');
-  let exportName = originalFileName ? originalFileName.replace(/\.xlsx?$/i, '') + '_已填充.xlsx' : '备货分析_已填充.xlsx';
-  XLSX.writeFile(wb, exportName);
-  showToast('导出完成（兼容模式，格式可能不完整）');
+  doExport();
 }
 
 function clearData() {
