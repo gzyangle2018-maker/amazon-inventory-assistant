@@ -18,6 +18,7 @@ let tableData = [];
 let batchFiles = [];
 let manualColumnMappings = {}; // User's manual column mapping overrides
 let originalFileName = ''; // Store original uploaded filename
+let originalFileBuffer = null; // Store original file ArrayBuffer for ZIP-based export
 let restockConfig = { weight_3d: 20, weight_7d: 30, weight_15d: 30, weight_30d: 20, stock_months: 4, deduct_unshipped: true, deduct_week_outbound: true };
 let currentUserPermissions = null; // Current user's permissions object
 let currentPermUser = null; // Username being edited in permission modal
@@ -722,6 +723,7 @@ function loadExcel(file) {
   const reader = new FileReader();
   reader.onload = async function(e) {
     showProgress(30);
+    originalFileBuffer = e.target.result.slice(0); // Save copy for ZIP-based export
     const data = new Uint8Array(e.target.result);
     workbook = XLSX.read(data, { type: 'array', cellStyles: true });
     worksheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -850,7 +852,7 @@ function renderTable() {
     return 'text';
   });
 
-  thead.innerHTML = '<tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr>';
+  thead.innerHTML = '<tr>' + headers.map(h => `<th>${escapeHtml(h) || '&nbsp;'}</th>`).join('') + '</tr>';
 
   tbody.innerHTML = tableData.map((row, rIdx) => {
     const isGreen = greenRows.has(rIdx);
@@ -1043,135 +1045,227 @@ function downloadBatchResult(result, origName) {
   XLSX.writeFile(wb, newName);
 }
 
-// ========== Export ==========
+// ========== Export (ZIP-based: preserves 100% original formatting) ==========
+function colToLetter(idx) {
+  let s = '';
+  idx++;
+  while (idx > 0) { idx--; s = String.fromCharCode(65 + idx % 26) + s; idx = Math.floor(idx / 26); }
+  return s;
+}
+
+function xmlEsc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 function exportResult() {
   if (!worksheet || !workbook) { showToast('没有数据可导出'); return; }
+  if (!originalFileBuffer || typeof JSZip === 'undefined') {
+    // Fallback: SheetJS export when JSZip unavailable or no buffer
+    showToast('正在使用兼容模式导出...');
+    exportResultFallback();
+    return;
+  }
 
-  const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+  exportResultZip();
+}
 
-  // Clone the ENTIRE original worksheet cell-by-cell to preserve all formatting,
-  // colors, fonts, borders, number formats, comments, data validation, etc.
-  const newWs = {};
-  for (let r = range.s.r; r <= range.e.r; r++) {
-    for (let c = range.s.c; c <= range.e.c; c++) {
-      const cellRef = XLSX.utils.encode_cell({ r, c });
-      const origCell = worksheet[cellRef];
-      if (origCell) {
-        // Deep clone every property of the cell (v, t, w, f, s, z, c, etc.)
-        newWs[cellRef] = {};
-        for (const key of Object.keys(origCell)) {
-          if (key === 's' || key === 'c') {
-            // Deep clone style and comment objects
-            try { newWs[cellRef][key] = JSON.parse(JSON.stringify(origCell[key])); }
-            catch(e) { newWs[cellRef][key] = origCell[key]; }
-          } else {
-            newWs[cellRef][key] = origCell[key];
-          }
-        }
+async function exportResultZip() {
+  try {
+    showToast('正在生成导出文件...');
+    const zip = await JSZip.loadAsync(originalFileBuffer);
+    const sheetPath = zip.file('xl/worksheets/sheet1.xml') ? 'xl/worksheets/sheet1.xml' :
+      Object.keys(zip.files).find(f => f.match(/xl\/worksheets\/sheet\d+\.xml/)) || 'xl/worksheets/sheet1.xml';
+    const sheetXml = await zip.file(sheetPath).async('string');
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(sheetXml, 'text/xml');
+
+    // Load shared strings
+    let ssStrings = [];
+    const ssFile = zip.file('xl/sharedStrings.xml');
+    if (ssFile) {
+      const ssXml = await ssFile.async('string');
+      const ssDoc = parser.parseFromString(ssXml, 'text/xml');
+      const sis = ssDoc.getElementsByTagName('si');
+      for (let i = 0; i < sis.length; i++) {
+        let text = '';
+        const ts = sis[i].getElementsByTagName('t');
+        for (let j = 0; j < ts.length; j++) text += (ts[j].textContent || '');
+        ssStrings.push(text);
       }
     }
-  }
-  newWs['!ref'] = worksheet['!ref'];
 
-  // Copy ALL sheet-level metadata (cols, rows, merges, views, protection, outlines, etc.)
-  for (const key of Object.keys(worksheet)) {
-    if (key.startsWith('!')) {
-      if (key === '!merges') {
-        newWs[key] = JSON.parse(JSON.stringify(worksheet[key]));
+    // Read header row to build column name → column index mapping
+    const allRows = doc.getElementsByTagName('row');
+    if (!allRows.length) { showToast('工作表为空'); return; }
+    const headerRow = allRows[0];
+    const hCells = headerRow.getElementsByTagName('c');
+    const colNameMap = {}; // headerName → 0-based col index
+    for (let i = 0; i < hCells.length; i++) {
+      const cell = hCells[i];
+      const ref = cell.getAttribute('r') || '';
+      const colLetters = ref.replace(/\d+/g, '');
+      let ci = 0;
+      for (let k = 0; k < colLetters.length; k++) ci = ci * 26 + colLetters.charCodeAt(k) - 64;
+      ci--;
+      let val = '';
+      if (cell.getAttribute('t') === 's') {
+        const vEl = cell.getElementsByTagName('v')[0];
+        if (vEl) val = ssStrings[parseInt(vEl.textContent)] || '';
       } else {
-        newWs[key] = worksheet[key];
+        const vEl = cell.getElementsByTagName('v')[0];
+        if (vEl) val = vEl.textContent || '';
+      }
+      val = String(val).trim();
+      if (val) colNameMap[val] = ci;
+    }
+
+    // Calculate header offset (if app added columns beyond original)
+    const origMaxCol = Math.max(...Object.values(colNameMap), -1);
+    const headerOffset = Math.max(0, headers.indexOf('AI建议') > origMaxCol ? headers.indexOf('AI建议') - origMaxCol - 1 : 0);
+
+    // Build target column map
+    const targets = {};
+    const calcFields = ['weekShip','seaOrder','date','handling','confiscate','aiAdvice'];
+    const colMap = autoMapColumns(headers);
+    for (const field of calcFields) {
+      const hdr = colMap[field];
+      if (hdr && colNameMap[hdr] !== undefined) targets[colNameMap[hdr]] = hdr;
+    }
+    for (const aux of AUX_COLUMNS) {
+      const ci = headers.indexOf(aux.name);
+      if (ci >= 0 && colNameMap[aux.name] !== undefined) targets[colNameMap[aux.name]] = aux.name;
+    }
+    // Also map newly-added columns not in original headers
+    for (let i = 0; i < headers.length; i++) {
+      const h = headers[i];
+      if (!h) continue;
+      if (colNameMap[h] !== undefined) continue;
+      // Column was added by app — find its position
+      const calcIdx = calcFields.findIndex(f => colMap[f] === h);
+      const auxIdx = AUX_COLUMNS.findIndex(a => a.name === h);
+      if (calcIdx >= 0 || auxIdx >= 0) {
+        // Map to original max col + offset
+        const newCi = origMaxCol + 1 + (i - (headers.indexOf('AI建议') >= 0 ? headers.indexOf('AI建议') : headers.length));
+        if (newCi >= 0) targets[newCi] = h;
       }
     }
-  }
 
-  // Only update calculated columns with new values
-  const colMap = autoMapColumns(headers);
-  const calcFields = ['weekShip', 'seaOrder', 'date', 'handling', 'confiscate', 'aiAdvice'];
-  for (const field of calcFields) {
-    const colHeader = colMap[field];
-    if (!colHeader) continue;
-    const colIdx = headers.indexOf(colHeader);
-    if (colIdx < 0) continue;
-    // Write calculated values for each data row
-    for (let rIdx = 0; rIdx < tableData.length; rIdx++) {
-      const cellRef = XLSX.utils.encode_cell({ r: rIdx + 1, c: colIdx }); // +1 for header row
-      const val = tableData[rIdx][colHeader];
-      if (val !== undefined && val !== null && val !== '') {
-        // If cell already exists, only update value/type, preserve style
-        if (newWs[cellRef]) {
-          const numVal = parseNum(val);
-          if (!isNaN(numVal) && String(numVal) === String(val)) {
-            newWs[cellRef].t = 'n';
-            newWs[cellRef].v = numVal;
-            delete newWs[cellRef].w; // Let SheetJS regenerate formatted text
-          } else {
-            newWs[cellRef].t = 's';
-            newWs[cellRef].v = String(val);
-            delete newWs[cellRef].w;
-          }
-        } else {
-          // Cell doesn't exist yet (new calculated column), create it
-          const numVal = parseNum(val);
-          if (!isNaN(numVal) && String(numVal) === String(val)) {
-            newWs[cellRef] = { t: 'n', v: numVal };
-          } else {
-            newWs[cellRef] = { t: 's', v: String(val) };
-          }
-        }
-      }
-    }
-  }
+    // Process data rows (skip header row 0)
+    const targetKeys = new Set(Object.keys(targets).map(Number));
+    for (let ri = 1; ri < allRows.length; ri++) {
+      const dataRow = allRows[ri];
+      const rIdx = ri - 1;
+      if (rIdx >= tableData.length) break;
+      const cells = Array.from(dataRow.getElementsByTagName('c'));
 
-  // Write auxiliary calculation columns to export
-  for (const aux of AUX_COLUMNS) {
-    const colIdx = headers.indexOf(aux.name);
-    if (colIdx < 0) continue;
-    for (let rIdx = 0; rIdx < tableData.length; rIdx++) {
-      const cellRef = XLSX.utils.encode_cell({ r: rIdx + 1, c: colIdx });
-      const val = tableData[rIdx][aux.name];
-      if (val !== undefined && val !== null && val !== '') {
+      for (const cell of cells) {
+        const ref = cell.getAttribute('r') || '';
+        const colLetters = ref.replace(/\d+/g, '');
+        let ci = 0;
+        for (let k = 0; k < colLetters.length; k++) ci = ci * 26 + colLetters.charCodeAt(k) - 64;
+        ci--;
+        if (!targetKeys.has(ci)) continue;
+
+        const hdr = targets[ci];
+        const val = tableData[rIdx][hdr];
+        if (val === undefined || val === null || val === '') continue;
+
         const numVal = parseNum(val);
-        if (!isNaN(numVal) && String(numVal) === String(val)) {
-          if (newWs[cellRef]) {
-            newWs[cellRef].t = 'n'; newWs[cellRef].v = numVal; delete newWs[cellRef].w;
-          } else {
-            newWs[cellRef] = { t: 'n', v: numVal };
-          }
+        const isNum = !isNaN(numVal) && String(numVal) === String(val).trim();
+        const vEl = cell.getElementsByTagName('v')[0];
+
+        if (isNum) {
+          cell.removeAttribute('t');
+          if (vEl) { vEl.textContent = String(numVal); }
+          else { const v = doc.createElement('v'); v.textContent = String(numVal); cell.appendChild(v); }
         } else {
-          if (newWs[cellRef]) {
-            newWs[cellRef].t = 's'; newWs[cellRef].v = String(val); delete newWs[cellRef].w;
-          } else {
-            newWs[cellRef] = { t: 's', v: String(val) };
-          }
+          // Text: use shared string
+          const sv = String(val);
+          let si = ssStrings.indexOf(sv);
+          if (si < 0) { si = ssStrings.length; ssStrings.push(sv); }
+          cell.setAttribute('t', 's');
+          if (vEl) { vEl.textContent = String(si); }
+          else { const v = doc.createElement('v'); v.textContent = String(si); cell.appendChild(v); }
         }
       }
+
+      // Add new cells for columns not in original (aux columns added by app)
+      for (const [ciStr, hdr] of Object.entries(targets)) {
+        const ci = parseInt(ciStr);
+        if (cells.some(c => { const r = c.getAttribute('r')||''; const l = r.replace(/\d+/g,''); let x=0; for(let k=0;k<l.length;k++) x=x*26+l.charCodeAt(k)-64; return x-1===ci; })) continue;
+        const val = tableData[rIdx][hdr];
+        if (val === undefined || val === null || val === '') continue;
+        const rowNum = ri + 1;
+        const cellRef = colToLetter(ci) + rowNum;
+        const newCell = doc.createElement('c');
+        newCell.setAttribute('r', cellRef);
+        const numVal = parseNum(val);
+        const isNum = !isNaN(numVal) && String(numVal) === String(val).trim();
+        if (isNum) {
+          const v = doc.createElement('v'); v.textContent = String(numVal); newCell.appendChild(v);
+        } else {
+          newCell.setAttribute('t', 'inlineStr');
+          const is = doc.createElement('is');
+          const t = doc.createElement('t'); t.textContent = String(val); is.appendChild(t);
+          newCell.appendChild(is);
+        }
+        dataRow.appendChild(newCell);
+      }
     }
-  }
 
-  // Update sheet range if we added columns beyond the original range
-  const newRange = XLSX.utils.decode_range(newWs['!ref'] || 'A1');
-  const maxCol = Math.max(newRange.e.c, headers.length - 1);
-  if (maxCol > newRange.e.c) {
-    newRange.e.c = maxCol;
-    newWs['!ref'] = XLSX.utils.encode_range(newRange);
-  }
+    // Expand sheet range to include new columns
+    const dimEl = doc.getElementsByTagName('dimension')[0];
+    if (dimEl) {
+      const maxTargetCol = Math.max(...Object.keys(targets).map(Number), origMaxCol);
+      const maxRow = Math.max(allRows.length, tableData.length + 1);
+      dimEl.setAttribute('ref', 'A1:' + colToLetter(maxTargetCol) + maxRow);
+    }
 
-  // Create new workbook from the cloned sheet
+    // Serialize sheet XML
+    const serializer = new XMLSerializer();
+    let newSheetXml = serializer.serializeToString(doc);
+    zip.file(sheetPath, newSheetXml);
+
+    // Update shared strings
+    if (ssFile) {
+      let ssXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+      ssXml += '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="' + ssStrings.length + '" uniqueCount="' + ssStrings.length + '">';
+      for (const s of ssStrings) { ssXml += '<si><t>' + xmlEsc(s) + '</t></si>'; }
+      ssXml += '</sst>';
+      zip.file('xl/sharedStrings.xml', ssXml);
+    }
+
+    // Generate and download
+    const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    let exportName = originalFileName ? originalFileName.replace(/\.xlsx?$/i, '') + '_已填充.xlsx' : '备货分析_已填充.xlsx';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = exportName;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('导出成功！已完整保留原始表格格式、颜色、备注');
+  } catch(e) {
+    console.error('ZIP export error:', e);
+    showToast('ZIP导出出错，切换到兼容模式...');
+    exportResultFallback();
+  }
+}
+
+function exportResultFallback() {
+  // SheetJS fallback (no style preservation)
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, newWs, workbook.SheetNames[0] || 'Sheet1');
-
-  // Preserve original filename with suffix
-  let exportName = '备货分析_' + new Date().toISOString().slice(0, 10) + '.xlsx';
-  if (originalFileName) {
-    exportName = originalFileName.replace(/\.xlsx?$/i, '') + '_已填充.xlsx';
-  }
-  XLSX.writeFile(wb, exportName, { cellStyles: true, bookType: 'xlsx' });
-  showToast('导出成功！已完整保留原始表格格式、颜色、备注');
+  const aoa = [headers, ...tableData.map(row => headers.map(h => row[h] !== undefined ? row[h] : ''))];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  XLSX.utils.book_append_sheet(wb, ws, workbook?.SheetNames?.[0] || 'Sheet1');
+  let exportName = originalFileName ? originalFileName.replace(/\.xlsx?$/i, '') + '_已填充.xlsx' : '备货分析_已填充.xlsx';
+  XLSX.writeFile(wb, exportName);
+  showToast('导出完成（兼容模式，格式可能不完整）');
 }
 
 function clearData() {
   workbook = null; worksheet = null; headers = []; colIdxMap = {}; greenRows.clear();
-  seckillItems = []; tableData = []; originalFileName = '';
+  seckillItems = []; tableData = []; originalFileName = ''; originalFileBuffer = null;
   document.getElementById('toolbar').style.display = 'none';
   document.getElementById('status-bar').style.display = 'none';
   document.getElementById('table-container').style.display = 'none';
