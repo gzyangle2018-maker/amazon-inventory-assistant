@@ -1126,37 +1126,35 @@ function exportResult() {
         }
       }
 
-      // Add auxiliary columns (AUX_COLUMNS) to the right side
+      // Add columns to the right side in order:
+      // 1) 处理建议, AI建议 (right after 备注)
+      // 2) AUX_COLUMNS (3天日均 etc. after 处理建议/AI建议)
       // First, try to reuse empty columns, then create new ones
       const auxColMap = {}; // aux column name -> column index
       let nextNewCol = actualMaxCol + 1;
       let emptyIdx = 0;
-      
-      for (let i = 0; i < AUX_COLUMNS.length; i++) {
-        const auxName = AUX_COLUMNS[i].name;
-        // If already in original, use existing column
-        if (colNameMap[auxName] !== undefined) {
-          auxColMap[auxName] = colNameMap[auxName];
+
+      // Helper: assign a column index for a new export column
+      function assignCol(name) {
+        if (colNameMap[name] !== undefined) {
+          auxColMap[name] = colNameMap[name];
         } else if (emptyIdx < emptyCols.length) {
-          // Reuse an empty column
-          auxColMap[auxName] = emptyCols[emptyIdx++];
+          auxColMap[name] = emptyCols[emptyIdx++];
         } else {
-          // Create a new column
-          auxColMap[auxName] = nextNewCol++;
+          auxColMap[name] = nextNewCol++;
         }
       }
 
-      // Also include 处理建议 and AI建议 columns
+      // 1) 处理建议 and AI建议 come first (between 备注 and calculation columns)
       const extraHeaders = ['处理建议', 'AI建议'];
       for (const eh of extraHeaders) {
-        if (auxColMap[eh] !== undefined) continue; // already mapped
-        if (colNameMap[eh] !== undefined) {
-          auxColMap[eh] = colNameMap[eh];
-        } else if (emptyIdx < emptyCols.length) {
-          auxColMap[eh] = emptyCols[emptyIdx++];
-        } else {
-          auxColMap[eh] = nextNewCol++;
-        }
+        if (auxColMap[eh] === undefined) assignCol(eh);
+      }
+
+      // 2) AUX_COLUMNS (3天日均, 7天日均, ...) come after
+      for (let i = 0; i < AUX_COLUMNS.length; i++) {
+        const auxName = AUX_COLUMNS[i].name;
+        if (auxColMap[auxName] === undefined) assignCol(auxName);
       }
 
       if (Object.keys(targets).length === 0 && Object.keys(auxColMap).length === 0) {
