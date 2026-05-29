@@ -4,7 +4,7 @@
 // ============================================
 
 const API_BASE = ''; // Same origin for Pages + Functions
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.0.1';
 
 let authToken = localStorage.getItem('token');
 let currentUser = null;
@@ -63,7 +63,7 @@ function getNextFriday() {
 
 function estimateShipDate(remaining, dailySales) {
   if (remaining <= 0) return [getNextFriday(), ''];
-  if (dailySales <= 0) return [`${Math.round(remaining)}-充公给别人`, '【充公建议】销量为0且库存不足，预计超过3个月才可发出，建议充公给别的团队卖'];
+  if (dailySales <= 0) return [`${Math.round(remaining)}-新品待观察`, '【新品提醒】无历史销量数据，建议人工评估后少量备货测试市场，暂不充公'];
 
   const daysNeeded = remaining / dailySales;
   if (daysNeeded > 90) return [`${Math.round(remaining)}-充公给别人`, '【充公建议】预计超过3个月才可发出，建议充公给别的团队卖'];
@@ -314,6 +314,9 @@ function analyzeRow(row, colMap, isGreen = false) {
   const rawTotalInv = available + unshipped + purchasing; // For auxiliary column display (no deductions)
   const monthlyWeighted = dailyWeighted * 30; // Weighted monthly sales
 
+  // New product detection: no historical sales data at all
+  const isNewProduct = (monthlySales === 0 && dailyWeighted === 0);
+
   // Use stocking rules to determine multiplier (priority-sorted, first match wins)
   let stockMultiplier = restockConfig.stock_months || 4;
   const sortedRules = [...stockingRules].filter(r => r.is_active !== 0 && r.is_active !== false).sort((a, b) => (a.priority || 0) - (b.priority || 0));
@@ -345,6 +348,32 @@ function analyzeRow(row, colMap, isGreen = false) {
   const qtyPerBox = PRODUCT_TYPES[ptype]?.qty || 50;
 
   const isHighVolume = monthlySales > 150;
+
+  // New product early return: skip confiscation, show observation notice
+  if (isNewProduct) {
+    const handlingRemarks = [];
+    if (isGreen) handlingRemarks.push('【绿标/翔标】该产品可能有绿标/翔标，请复制ASIN到详情页确认后再操作');
+    handlingRemarks.push('🆕 新品待观察，建议人工评估首次备货量');
+    // AI silence rule: only output advice if there's some data (transit/purchasing/unshipped)
+    const hasAnyData = unshipped > 0 || purchasing > 0 || unshippedOrders > 0;
+    const aiAdvice = hasAnyData ? '【新品】无历史销售数据，建议人工评估首次备货量' : '';
+    return {
+      weekShip: '', seaOrder: '', date: '新品待观察', remark: '',
+      handling: handlingRemarks.join(' | '), confiscate: '',
+      aiAdvice, asin, sku,
+      _meta: { is_excess: false, available_excess: 0, restock_excess_qty: 0,
+        is_deep: false, is_high_volume: false, is_stagnant: false,
+        is_new_product: true, suggest_restock: 0,
+        actual_restock: 0, ptype, qty_per_box: qtyPerBox, daily_sales: '0.0',
+        daily_weighted: '0.00', target_stock: 0, total_inv: rawTotalInv,
+        unshipped_orders: Math.round(unshippedOrders), week_ship: 0, monthly_sales: 0, asin, sku,
+        daily_3: 0, daily_7: 0, daily_15: 0, daily_30: 0,
+        monthly_weighted: 0, stock_months: stockMultiplier,
+        fba_available: available, transit_total: unshipped, purchasing_total: purchasing,
+        recommended_order: 0, inventory_months: 0 }
+    };
+  }
+
   let isStagnant = false;
   let stagnantMsg = '';
   if (sales30 > 0 && totalInv > sales30 * 6) {
